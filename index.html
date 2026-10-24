@@ -214,7 +214,7 @@
       <div class="modal-body">
         <div class="sync-section">
           <p class="sync-description">
-            Güncellemeleri bu ekrandan elle kontrol edebilirsiniz. Uygulama dosyaları arka planda kendiliğinden değiştirilmez.
+            Uygulama açılışta GitHub'daki yayımlanmış sürümü kontrol eder. Yeni sürüm varsa Windows kurulumunu indirip başlatır.
           </p>
 
           <div class="form-group">
@@ -222,7 +222,7 @@
             <input type="text" id="github-repo-input" placeholder="Örn: o4088/ChatTarayici">
           </div>
 
-          <p class="sync-description">Denetim yalnızca yayımlanmış GitHub Releases sürümlerini kontrol eder. Kaynak kod veya package.json değişiklikleri uygulama güncellemesi sayılmaz.</p>
+          <p class="sync-description">Güncelleme için GitHub'da yeni sürüm yayımlanmış olmalıdır. Kaynak kod değişiklikleri tek başına kurulum güncellemesi sayılmaz.</p>
 
           <div style="margin-top: 18px; display:flex; gap:10px;">
             <button class="btn-primary" onclick="checkCentralUpdateNow()">

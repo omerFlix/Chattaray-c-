@@ -2,6 +2,7 @@ const { ipcRenderer, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { pathToFileURL } = require('url');
+const APP_VERSION = require('./package.json').version;
 const ExtensionManager = require('./extension-manager');
 const CentralUpdater = require('./updater');
 
@@ -19,18 +20,21 @@ const SEARCH_ENGINE = 'https://www.google.com/search?q=';
 // ===== Extensions & Central Updater =====
 const extensionsDir = ipcRenderer.sendSync('extensions-get-directory');
 const extensionManager = new ExtensionManager(extensionsDir);
+const extensionRuntimeInfo = ipcRenderer.sendSync('extensions-get-runtime-info') || {};
+const nativeExtensionUrls = new Map(extensionRuntimeInfo.loaded || []);
+const extensionRuntimeErrors = new Map(extensionRuntimeInfo.errors || []);
+const pendingNativeExtensionLoads = new Set();
 let activePopupExtensionId = null;
 
 const updater = new CentralUpdater({
   appRoot: __dirname,
-  configPath: path.join(path.dirname(extensionsDir), 'update-config.json'),
-  onError: (err) => {
-    setUpdateStatus(err, true);
-  },
-  onStatus: (msg) => {
-    setUpdateStatus(msg, false);
-    setStatusText(msg);
-  }
+  configPath: path.join(path.dirname(extensionsDir), 'update-config.json')
+});
+
+ipcRenderer.on('github-update-status', (_event, status) => {
+  if (!status || !status.message) return;
+  setUpdateStatus(status.message, Boolean(status.isError));
+  setStatusText(status.message);
 });
 
 // ===== Window Controls =====
@@ -194,6 +198,9 @@ function injectExtensionScripts(webview) {
 
     const scriptEntries = extensionManager.getContentScripts(currentUrl);
     for (const entry of scriptEntries) {
+      // Electron's native extension loader handles these content scripts and APIs.
+      if (nativeExtensionUrls.has(entry.extensionId)) continue;
+
       // Safe CSS injection
       for (const css of entry.css) {
         if (css && css.trim()) {
@@ -659,10 +666,10 @@ function showSettings() {
       .version { margin-top: 40px; color: #6b7280; font-size: 12px; text-align: center; }
     </style></head><body>
       <h2>⚙️ Ayarlar</h2>
-      <div class="setting"><label>Sürüm</label><p>ChatTarayıcı v1.0.0</p></div>
+      <div class="setting"><label>Sürüm</label><p>ChatTarayıcı v${APP_VERSION}</p></div>
       <div class="setting"><label>Motor</label><p>Chromium (Electron)</p></div>
       <div class="setting"><label>Eklenti Desteği</label><p>Aktif ✅ (Chrome Manifest Uyumlu)</p></div>
-      <div class="setting"><label>Güncelleme Denetimi</label><p>Yalnızca sen istediğinde yayımlanmış sürümleri kontrol eder; uygulama kendiliğinden güncellenmez.</p></div>
+      <div class="setting"><label>Güncelleme</label><p>Uygulama açılışta GitHub'dan yeni sürümü kontrol eder ve varsa kurulumunu başlatır.</p></div>
       <div class="setting"><label>Reklam Engelleyici</label><p>Aktif ✅</p></div>
       <div class="version">ChatTarayıcı — Modern, hızlı ve tam donanımlı tarayıcınız</div>
     </body></html>
@@ -717,6 +724,7 @@ function renderExtensionsDropdown() {
   if (!list) return;
 
   const exts = extensionManager.scanExtensions();
+  ensureEnabledNativeExtensions(exts);
   list.innerHTML = '';
 
   if (exts.length === 0) {
@@ -765,6 +773,7 @@ function renderExtensionsList() {
   if (!list) return;
 
   const exts = extensionManager.scanExtensions();
+  ensureEnabledNativeExtensions(exts);
   list.innerHTML = '';
 
   if (exts.length === 0) {
@@ -781,6 +790,10 @@ function renderExtensionsList() {
   exts.forEach(ext => {
     const card = document.createElement('div');
     card.className = 'extension-card';
+    const runtimeError = extensionRuntimeErrors.get(ext.id);
+    const runtimeNote = runtimeError
+      ? `<small style="display:block; margin-top:5px; color:var(--danger-color);">Chrome API yükleme uyarısı: ${escapeHtml(runtimeError)}. İçerik betiği desteği yine denenir.</small>`
+      : '';
 
     const iconHtml = ext.icon && fs.existsSync(ext.icon)
       ? `<img src="${pathToFileURL(ext.icon).href}">`
@@ -794,6 +807,7 @@ function renderExtensionsList() {
         <div class="extension-meta">
           <h4>${escapeHtml(ext.name)} <span class="version-tag">v${escapeHtml(ext.version)}</span></h4>
           <p>${escapeHtml(ext.description || 'Açıklama belirtilmemiş.')}</p>
+          ${runtimeNote}
         </div>
       </div>
       <div class="extension-controls">
@@ -835,6 +849,51 @@ function updateActiveExtensionsBar(exts) {
   });
 }
 
+async function loadNativeExtensionForUi(extId) {
+  const result = await ipcRenderer.invoke('extension-load-native', extId);
+  if (result && result.ok) {
+    nativeExtensionUrls.set(extId, { id: result.id, url: result.url });
+    extensionRuntimeErrors.delete(extId);
+  } else {
+    nativeExtensionUrls.delete(extId);
+    extensionRuntimeErrors.set(extId, result?.error || 'Eklenti başlatılamadı.');
+  }
+  return result;
+}
+
+function ensureEnabledNativeExtensions(exts) {
+  for (const ext of exts) {
+    if (!ext.enabled || nativeExtensionUrls.has(ext.id) || extensionRuntimeErrors.has(ext.id) || pendingNativeExtensionLoads.has(ext.id)) continue;
+
+    pendingNativeExtensionLoads.add(ext.id);
+    loadNativeExtensionForUi(ext.id).then((result) => {
+      if (result && result.ok) reloadOpenWebviews();
+      if (document.getElementById('extensions-modal') && !document.getElementById('extensions-modal').classList.contains('hidden')) {
+        renderExtensionsList();
+      }
+    }).catch((error) => {
+      extensionRuntimeErrors.set(ext.id, error.message || 'Eklenti başlatılamadı.');
+    }).finally(() => {
+      pendingNativeExtensionLoads.delete(ext.id);
+    });
+  }
+}
+
+async function unloadNativeExtensionForUi(extId) {
+  const result = await ipcRenderer.invoke('extension-unload-native', extId);
+  nativeExtensionUrls.delete(extId);
+  extensionRuntimeErrors.delete(extId);
+  return result;
+}
+
+function reloadOpenWebviews() {
+  document.querySelectorAll('#webview-container webview').forEach((webview) => {
+    try {
+      if (webview.getURL && /^https?:\/\//i.test(webview.getURL())) webview.reload();
+    } catch {}
+  });
+}
+
 async function installExtensionFromFolder() {
   try {
     const folderPath = await ipcRenderer.invoke('dialog-open-directory');
@@ -842,9 +901,17 @@ async function installExtensionFromFolder() {
 
     setStatusText('Eklenti yükleniyor...');
     const extId = extensionManager.installFromFolder(folderPath);
+    const runtime = await loadNativeExtensionForUi(extId);
     renderExtensionsList();
-    alert(`🎉 "${extId}" eklentisi başarıyla yüklendi ve aktif edildi!`);
-    setStatusText(`"${extId}" eklentisi başarıyla yüklendi`);
+    reloadOpenWebviews();
+    if (runtime && runtime.ok) {
+      alert(`🎉 "${extId}" eklentisi yüklendi ve etkinleştirildi.`);
+      setStatusText(`"${extId}" eklentisi etkinleştirildi`);
+    } else {
+      const fallbackMessage = runtime?.error || 'Electron bu eklentinin istediği Chrome API desteğini sağlayamadı.';
+      alert(`"${extId}" eklentisi eklendi; temel içerik betiği desteği kullanılacak.\n\nEklenti API uyarısı: ${fallbackMessage}`);
+      setStatusText(`"${extId}" eklentisi temel modda etkin; ayrıntı için eklenti kartına bak`);
+    }
   } catch (err) {
     alert(`Eklenti yüklenemedi: ${err.message}`);
     setStatusText(`Hata: ${err.message}`);
@@ -858,9 +925,17 @@ async function installExtensionFromZip() {
 
     setStatusText('ZIP eklentisi açılıyor...');
     const extId = await extensionManager.installFromZip(zipPath);
+    const runtime = await loadNativeExtensionForUi(extId);
     renderExtensionsList();
-    alert(`🎉 "${extId}" eklentisi ZIP dosyasından başarıyla kuruldu!`);
-    setStatusText(`"${extId}" eklentisi kuruldu`);
+    reloadOpenWebviews();
+    if (runtime && runtime.ok) {
+      alert(`🎉 "${extId}" eklentisi ZIP dosyasından yüklendi ve etkinleştirildi.`);
+      setStatusText(`"${extId}" eklentisi etkinleştirildi`);
+    } else {
+      const fallbackMessage = runtime?.error || 'Electron bu eklentinin istediği Chrome API desteğini sağlayamadı.';
+      alert(`"${extId}" eklentisi eklendi; temel içerik betiği desteği kullanılacak.\n\nEklenti API uyarısı: ${fallbackMessage}`);
+      setStatusText(`"${extId}" eklentisi temel modda etkin; ayrıntı için eklenti kartına bak`);
+    }
   } catch (err) {
     alert(`ZIP eklenti kurulum hatası: ${err.message}`);
     setStatusText(`Hata: ${err.message}`);
@@ -871,29 +946,44 @@ function openExtensionsFolder() {
   shell.openPath(extensionManager.extensionsDir);
 }
 
-function toggleExtensionState(extId, isEnabled) {
+async function toggleExtensionState(extId, isEnabled) {
+  let runtime = null;
   if (isEnabled) {
     extensionManager.enableExtension(extId);
+    runtime = await loadNativeExtensionForUi(extId);
   } else {
     extensionManager.disableExtension(extId);
+    await unloadNativeExtensionForUi(extId);
   }
   renderExtensionsList();
-  document.querySelectorAll('#webview-container webview').forEach((webview) => {
-    if (webview.getURL && webview.getURL().startsWith('http')) webview.reload();
-  });
+  reloadOpenWebviews();
+  if (isEnabled && runtime && !runtime.ok) {
+    setStatusText(`Eklenti temel modda çalışıyor: ${runtime.error}`);
+  }
 }
 
-function deleteExtension(extId) {
+async function deleteExtension(extId) {
   if (confirm(`"${extId}" eklentisini tamamen silmek istediğine emin misin?`)) {
+    if (activePopupExtensionId === extId) {
+      closeExtensionPopup();
+      const frame = document.getElementById('extension-popup-frame');
+      if (frame) frame.src = 'about:blank';
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+
+    const unloadResult = await unloadNativeExtensionForUi(extId);
+    if (unloadResult && !unloadResult.ok) {
+      alert(`"${extId}" eklentisi çalışırken kaldırılamadı: ${unloadResult.error || 'Eklenti kapatılamadı.'}`);
+      return;
+    }
+
     const removed = extensionManager.removeExtension(extId);
     if (!removed) {
       alert(`"${extId}" eklentisi silinemedi. Uygulama klasörüne erişim engellenmiş olabilir.`);
       return;
     }
     renderExtensionsList();
-    document.querySelectorAll('#webview-container webview').forEach((webview) => {
-      if (webview.getURL && webview.getURL().startsWith('http')) webview.reload();
-    });
+    reloadOpenWebviews();
     setStatusText(`"${extId}" eklentisi silindi`);
   }
 }
@@ -913,9 +1003,16 @@ function openExtensionPopup(extId) {
   title.textContent = ext ? (ext.manifest.name || ext.id) : 'Eklenti';
 
   if (ext && ext.popupFile) {
-    const popupUrl = pathToFileURL(path.join(ext.path, ext.popupFile));
-    popupUrl.searchParams.set('enabled', String(!!ext.enabled));
-    frame.src = popupUrl.href;
+    const nativeInfo = nativeExtensionUrls.get(extId);
+    if (nativeInfo && nativeInfo.url) {
+      const popupUrl = new URL(ext.popupFile, nativeInfo.url.endsWith('/') ? nativeInfo.url : `${nativeInfo.url}/`);
+      popupUrl.searchParams.set('enabled', String(!!ext.enabled));
+      frame.src = popupUrl.href;
+    } else {
+      const popupUrl = pathToFileURL(path.join(ext.path, ext.popupFile));
+      popupUrl.searchParams.set('enabled', String(!!ext.enabled));
+      frame.src = popupUrl.href;
+    }
   } else {
     const encodedHtml = encodeURIComponent(popupInfo.html);
     frame.src = `data:text/html;charset=utf-8,${encodedHtml}`;
@@ -926,7 +1023,9 @@ function openExtensionPopup(extId) {
 
 function closeExtensionPopup() {
   const container = document.getElementById('extension-popup-container');
+  const frame = document.getElementById('extension-popup-frame');
   if (container) container.classList.add('hidden');
+  if (frame) frame.src = 'about:blank';
   activePopupExtensionId = null;
 }
 
@@ -962,7 +1061,7 @@ async function checkCentralUpdateNow() {
   updater.saveConfig();
 
   setUpdateStatus('GitHub üzerinden en son güncellemeler denetleniyor...', false);
-  await updater.checkForUpdates(false);
+  await ipcRenderer.invoke('github-update-check', { repo, silent: false });
 }
 
 function saveCentralUpdateSettings() {
@@ -1111,3 +1210,12 @@ function init() {
 }
 
 init();
+
+window.addEventListener('load', () => {
+  setTimeout(() => {
+    ipcRenderer.invoke('github-update-check', {
+      repo: updater.config.githubRepo,
+      silent: true
+    }).catch((e) => console.warn('GitHub update check failed:', e));
+  }, 1500);
+});

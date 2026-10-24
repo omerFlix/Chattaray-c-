@@ -50,15 +50,6 @@
     <span id="saved" class="save-indicator">Kaydedildi!</span>
   </h3>
   <textarea id="notes" placeholder="Buraya notlarını yaz..."></textarea>
-  <script>
-    const ta = document.getElementById('notes');
-    const saved = document.getElementById('saved');
-    ta.value = localStorage.getItem('quick_notes') || '';
-    ta.addEventListener('input', () => {
-      localStorage.setItem('quick_notes', ta.value);
-      saved.style.opacity = '1';
-      setTimeout(() => saved.style.opacity = '0', 1000);
-    });
-  </script>
+  <script src="popup.js"></script>
 </body>
 </html>

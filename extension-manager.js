@@ -195,7 +195,7 @@ class ExtensionManager {
     if (!ext) return false;
 
     try {
-      fs.rmSync(ext.path, { recursive: true, force: true });
+      fs.rmSync(ext.path, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
       if (fs.existsSync(ext.path)) {
         throw new Error('Eklenti klasörü silinemedi. Klasör başka bir işlem tarafından kullanılıyor olabilir.');
       }

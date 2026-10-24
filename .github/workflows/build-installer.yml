@@ -24,6 +24,23 @@ jobs:
       - name: Install Dependencies
         run: npm install
 
+      - name: Read App Version
+        id: app_version
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Check whether this version is already released
+        id: release_tag
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $tag = "v$version"
+          $existingTag = git ls-remote --tags origin "refs/tags/$tag"
+          $exists = -not [string]::IsNullOrWhiteSpace(($existingTag -join ""))
+          "exists=$($exists.ToString().ToLower())" >> $env:GITHUB_OUTPUT
+
       - name: Build Windows Setup (.exe) & Portable
         run: npm run dist
 
@@ -35,16 +52,15 @@ jobs:
 
       - name: Publish GitHub Release with Setup.exe
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        if: (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && steps.release_tag.outputs.exists != 'true'
         with:
-          name: ChatTarayıcı Son Sürüm Kurulum
-          tag_name: v1.0.0
+          name: ChatTarayıcı v${{ steps.app_version.outputs.version }}
+          tag_name: v${{ steps.app_version.outputs.version }}
           files: dist/*.exe
           body: |
             ## 🚀 ChatTarayıcı Kurulum Dosyaları
 
-            Arkadaşlarınızın Node.js veya npm kurmasına gerek yok!
-            Aşağıdaki `.exe` dosyasını indirip çift tıklayarak kurabilirler:
+            Güncelleme uygulama açılışında otomatik denetlenir. Windows Setup dosyası uygulamayı günceller.
 
-            - **ChatTarayici Setup 1.0.0.exe**: Standart Windows Kurulum Dosyası (Masaüstü kısayolu oluşturur)
-            - **ChatTarayici 1.0.0.exe**: Kurulumsuz Taşınabilir (Portable) Sürüm
+            - **ChatTarayici Setup**: Standart Windows kurulum dosyası
+            - **ChatTarayici**: Taşınabilir sürüm

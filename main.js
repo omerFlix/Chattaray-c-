@@ -2,6 +2,8 @@ const { app, BrowserWindow, ipcMain, session, dialog } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const { spawn } = require('child_process');
+const CentralUpdater = require('./updater');
 
 // Isolate cache and userData outside OneDrive to prevent Windows lock (0x5 Access Denied)
 const cleanUserData = path.join(os.homedir(), '.chattarayici-data');
@@ -19,6 +21,10 @@ app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 app.commandLine.appendSwitch('no-sandbox');
 
 let mainWindow;
+let extensionsDirectory = null;
+let githubUpdater = null;
+const nativeExtensions = new Map();
+const extensionLoadErrors = new Map();
 
 function prepareExtensionsDirectory() {
   const writableDir = path.join(app.getPath('userData'), 'extensions');
@@ -71,13 +77,28 @@ function prepareExtensionsDirectory() {
       if (!entry.isDirectory() || entry.name.startsWith('.') || removedIds.has(entry.name)) continue;
       const source = path.join(bundledDir, entry.name);
       const destination = path.join(writableDir, entry.name);
-      if (!fs.existsSync(destination)) {
+      if (!fs.existsSync(path.join(destination, 'manifest.json'))) {
         try {
+          fs.rmSync(destination, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
           fs.cpSync(source, destination, { recursive: true, errorOnExist: false, force: false });
         } catch (e) {
           console.warn('Could not copy bundled extension:', entry.name, e);
         }
       }
+    }
+  }
+
+  // Match ExtensionManager's first-scan behavior before the native extensions
+  // are loaded. Without this, the first scan can enable an extension only
+  // after Electron has already decided which extensions to load at startup.
+  const removedIds = new Set(state.removed);
+  for (const entry of fs.readdirSync(writableDir, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name.startsWith('.') || removedIds.has(entry.name)) continue;
+    if (!fs.existsSync(path.join(writableDir, entry.name, 'manifest.json'))) continue;
+
+    if (!state.known.includes(entry.name)) {
+      state.known.push(entry.name);
+      if (!state.enabled.includes(entry.name)) state.enabled.push(entry.name);
     }
   }
 
@@ -91,7 +112,136 @@ function prepareExtensionsDirectory() {
 }
 
 ipcMain.on('extensions-get-directory', (event) => {
-  event.returnValue = prepareExtensionsDirectory();
+  extensionsDirectory = extensionsDirectory || prepareExtensionsDirectory();
+  event.returnValue = extensionsDirectory;
+});
+
+function getSafeExtensionPath(extId) {
+  extensionsDirectory = extensionsDirectory || prepareExtensionsDirectory();
+  if (typeof extId !== 'string' || !extId.trim()) throw new Error('Eklenti kimliği geçersiz.');
+
+  const resolvedPath = path.resolve(extensionsDirectory, extId);
+  const relativePath = path.relative(extensionsDirectory, resolvedPath);
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    throw new Error('Eklenti yolu geçersiz.');
+  }
+  return resolvedPath;
+}
+
+async function loadNativeExtension(extId) {
+  const existing = nativeExtensions.get(extId);
+  if (existing) return { ok: true, id: existing.id, url: existing.url };
+
+  const extensionPath = getSafeExtensionPath(extId);
+  if (!fs.existsSync(path.join(extensionPath, 'manifest.json'))) {
+    throw new Error('Eklenti klasöründe manifest.json bulunamadı.');
+  }
+
+  try {
+    const loaded = await session.defaultSession.loadExtension(extensionPath, { allowFileAccess: true });
+    nativeExtensions.set(extId, loaded);
+    extensionLoadErrors.delete(extId);
+    return { ok: true, id: loaded.id, url: loaded.url };
+  } catch (e) {
+    extensionLoadErrors.set(extId, e.message);
+    throw e;
+  }
+}
+
+function unloadNativeExtension(extId) {
+  const loaded = nativeExtensions.get(extId);
+  if (loaded) {
+    session.defaultSession.removeExtension(loaded.id);
+    nativeExtensions.delete(extId);
+  }
+  extensionLoadErrors.delete(extId);
+  return true;
+}
+
+async function loadEnabledNativeExtensions() {
+  extensionsDirectory = prepareExtensionsDirectory();
+  const statePath = path.join(extensionsDirectory, '.enabled.json');
+  let enabledIds = new Set();
+  try {
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+    enabledIds = new Set(Array.isArray(state.enabled) ? state.enabled : []);
+  } catch (e) {
+    console.warn('Could not read enabled extension list:', e);
+  }
+
+  for (const entry of fs.readdirSync(extensionsDirectory, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name.startsWith('.') || !enabledIds.has(entry.name)) continue;
+    try {
+      await loadNativeExtension(entry.name);
+    } catch (e) {
+      console.warn(`Could not load extension ${entry.name} with Electron:`, e.message);
+    }
+  }
+}
+
+ipcMain.on('extensions-get-runtime-info', (event) => {
+  event.returnValue = {
+    loaded: Array.from(nativeExtensions.entries()).map(([extId, ext]) => [extId, { id: ext.id, url: ext.url }]),
+    errors: Array.from(extensionLoadErrors.entries())
+  };
+});
+
+ipcMain.handle('extension-load-native', async (_event, extId) => {
+  try {
+    return await loadNativeExtension(extId);
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle('extension-unload-native', (_event, extId) => {
+  try {
+    return { ok: unloadNativeExtension(extId) };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+function sendUpdaterStatus(message, isError = false) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('github-update-status', { message, isError });
+  }
+}
+
+function startUpdateInstaller(installerPath) {
+  return new Promise((resolve, reject) => {
+    const installer = spawn(installerPath, [], {
+      detached: true,
+      stdio: 'ignore'
+    });
+    installer.once('error', reject);
+    installer.once('spawn', () => {
+      installer.unref();
+      setTimeout(() => app.quit(), 800);
+      resolve();
+    });
+  });
+}
+
+function createGithubUpdater() {
+  githubUpdater = new CentralUpdater({
+    appRoot: app.getAppPath(),
+    appVersion: app.getVersion(),
+    isPackaged: app.isPackaged,
+    configPath: path.join(app.getPath('userData'), 'update-config.json'),
+    onStatus: (message) => sendUpdaterStatus(message, false),
+    onError: (message) => sendUpdaterStatus(message, true),
+    onInstall: startUpdateInstaller
+  });
+}
+
+ipcMain.handle('github-update-check', async (_event, options = {}) => {
+  if (!githubUpdater) createGithubUpdater();
+  if (options.repo) {
+    githubUpdater.config.githubRepo = options.repo;
+    githubUpdater.saveConfig();
+  }
+  return githubUpdater.checkForUpdates(Boolean(options.silent), true);
 });
 
 function createWindow() {
@@ -188,8 +338,15 @@ function setupAdBlocker() {
 }
 
 app.whenReady().then(() => {
-  createWindow();
   setupAdBlocker();
+  loadEnabledNativeExtensions().then(() => {
+    createWindow();
+    if (!githubUpdater) createGithubUpdater();
+  }).catch((e) => {
+    console.error('Could not initialize extensions:', e);
+    createWindow();
+    if (!githubUpdater) createGithubUpdater();
+  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

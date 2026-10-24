@@ -1,5 +1,5 @@
 {
-  "manifest_version": 3,
+  "manifest_version": 2,
   "name": "omerFlix MASTER",
   "version": "7.2",
   "description": "Gelişmiş 3D/8D Ses Motoru ve Web Koruması",
@@ -8,17 +8,18 @@
     "48": "icon.png",
     "128": "icon.png"
   },
-  "action": {
+  "browser_action": {
     "default_popup": "popup.html",
     "default_icon": "icon.png"
   },
   "permissions": [
     "activeTab",
-    "scripting",
     "storage",
-    "tabs"
+    "tabs",
+    "http://*/*",
+    "https://*/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "scripts": ["background.js"]
   }
 }

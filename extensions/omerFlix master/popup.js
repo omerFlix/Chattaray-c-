@@ -12,6 +12,36 @@ let protSettings = { trackers:true, ads:true, virus:true, sponsor:true };
 let audioData = new Array(32).fill(0);
 let shakeInjected = false;
 
+function getActiveTab() {
+  return new Promise(resolve => {
+    chrome.tabs.query({ active: true }, tabs => {
+      if (chrome.runtime.lastError) console.warn(chrome.runtime.lastError.message);
+      resolve(tabs && tabs[0]);
+    });
+  });
+}
+
+function executeInTab(tabId, func, args = []) {
+  const executeLegacy = () => {
+    const code = `(${func.toString()})(...${JSON.stringify(args)});`;
+    return new Promise(resolve => {
+      chrome.tabs.executeScript(tabId, { code }, result => {
+        if (chrome.runtime.lastError) console.warn(chrome.runtime.lastError.message);
+        resolve(result);
+      });
+    });
+  };
+
+  if (chrome.scripting && chrome.scripting.executeScript) {
+    try {
+      return chrome.scripting.executeScript({ target: { tabId }, func, args }).catch(executeLegacy);
+    } catch (error) {
+      console.warn(error.message);
+    }
+  }
+  return executeLegacy();
+}
+
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "AUDIO_VISUALIZER_DATA") audioData = msg.data;
 });
@@ -56,15 +86,9 @@ function renderProtUI() {
 
 function applyProtSettings() {
   chrome.storage.local.set({ protSettings });
-  chrome.tabs.query({ active:true, currentWindow:true }, (tabs) => {
+  chrome.tabs.query({ active:true }, (tabs) => {
     if (!tabs[0]) return;
-    try {
-      chrome.scripting.executeScript({
-        target:{ tabId:tabs[0].id },
-        func:(s)=>{ window.__omfSettings=s; },
-        args:[protSettings]
-      });
-    } catch(e){}
+    executeInTab(tabs[0].id, (s)=>{ window.__omfSettings=s; }, [protSettings]);
   });
   renderProtUI();
 }
@@ -90,9 +114,7 @@ function setupVisualizer() {
 async function injectShakeLoop(tabId) {
   if (shakeInjected) return;
   shakeInjected=true;
-  chrome.scripting.executeScript({
-    target:{tabId},
-    func:()=>{
+  executeInTab(tabId, ()=>{
       if (window.__omfShakeLoop) return;
       window.__omfShakeLoop=true;
       window.__omfMonsterOn=false;
@@ -120,20 +142,15 @@ async function injectShakeLoop(tabId) {
         } catch(e){}
         requestAnimationFrame(shake);
       })();
-    }
   });
 }
 
 async function setMonsterState(tabId,on,device,nuke) {
-  chrome.scripting.executeScript({
-    target:{tabId},
-    func:(on,device,nuke)=>{window.__omfMonsterOn=on;window.__omfDevice=device;window.__omfNukeOn=nuke;},
-    args:[on,device,nuke]
-  });
+  executeInTab(tabId, (on,device,nuke)=>{window.__omfMonsterOn=on;window.__omfDevice=device;window.__omfNukeOn=nuke;}, [on,device,nuke]);
 }
 
 async function updateEngine() {
-  const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
+  const tab = await getActiveTab();
   if (!tab) return;
 
   const raw=parseInt(document.getElementById('volume').value); 
@@ -161,9 +178,7 @@ async function updateEngine() {
   await injectShakeLoop(tab.id);
   await setMonsterState(tab.id,appState.monsterMode,appState.device,appState.nuke);
 
-  chrome.scripting.executeScript({
-    target:{tabId:tab.id},
-    func:(p)=>{
+  executeInTab(tab.id, (p)=>{
       window.__omfParams=p;
       const media=document.querySelector('video, audio');
       if (!media) return;
@@ -373,9 +388,7 @@ async function updateEngine() {
         }
         return curve;
       }
-    },
-    args:[appState]
-  });
+    }, [appState]);
 }
 
 function init() {

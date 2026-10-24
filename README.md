@@ -18,7 +18,7 @@ Arkadaşlarınızın hiçbir şey yüklemesine gerek yok! Doğrudan indirip çif
 
 - 🚀 **Chromium Motoru**: Gerçek web sitelerini yüksek hızda gezin.
 - 🧩 **Eklenti Desteği**: Manifest dosyası, içerik betiği ve açılır pencere içeren eklentileri klasörden veya ZIP dosyasından yükle.
-- 🔄 **Güncelleme Denetimi**: Yayımlanmış GitHub Releases sürümlerini elle denetle. `package.json` kaynak değişiklikleri uygulama güncellemesi sayılmaz ve uygulama kendiliğinden güncellenmez.
+- 🔄 **Otomatik Güncelleme**: Açılışta yayımlanmış GitHub Releases sürümünü denetler; yeni sürüm varsa Windows Setup dosyasını indirip başlatır.
 - 🛡️ **Yerleşik Reklam Engelleyici**: Reklamları ve izleyicileri engeller.
 - 📑 **Çoklu Sekme & Gizli Mod**: Sekmeler arası hızlı geçiş, klavye kısayolları.
 - 🔖 **Yer İşaretleri & Geçmiş**: Sayfaları kaydet ve geçmişi yönet.
