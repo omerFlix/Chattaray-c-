@@ -35,6 +35,7 @@ const nativeExtensionUrls = new Map(extensionRuntimeInfo.loaded || []);
 const extensionRuntimeErrors = new Map(extensionRuntimeInfo.errors || []);
 const pendingNativeExtensionLoads = new Set();
 let activePopupExtensionId = null;
+let extensionPopupBridgePollTimer = null;
 let adultProtectionState = ipcRenderer.sendSync('adult-protection-get') || { enabled: true, domainCount: 0, updatedAt: null };
 const blockedPageByWebview = new WeakMap();
 
@@ -1608,6 +1609,383 @@ function popupUsesParentMessaging(ext, html) {
   return /(?:window\s*\.\s*)?parent\s*\.\s*postMessage\s*\(/.test(scriptText);
 }
 
+function installPopupExtensionCompatibility(extensionId, extensionRootUrl) {
+  const pending = new Map();
+  let requestCounter = 0;
+  const listeners = new Set();
+
+  const onMessage = {
+    addListener(listener) { if (typeof listener === 'function') listeners.add(listener); },
+    removeListener(listener) { listeners.delete(listener); },
+    hasListener(listener) { return listeners.has(listener); }
+  };
+
+  function sendHostRequest(type, payload = {}) {
+    return new Promise((resolve, reject) => {
+      const id = `${Date.now()}-${++requestCounter}`;
+      pending.set(id, { resolve, reject });
+      window.parent.postMessage({
+        channel: 'chattarayici-extension-bridge',
+        extensionId,
+        id,
+        type,
+        payload
+      }, '*');
+      window.setTimeout(() => {
+        const request = pending.get(id);
+        if (!request) return;
+        pending.delete(id);
+        request.reject(new Error('Tarayıcı uygulaması yanıt vermedi.'));
+      }, 15000);
+    });
+  }
+
+  function withCallback(promise, callback, fallbackValue) {
+    if (typeof callback === 'function') {
+      promise.then(value => callback(value), error => {
+        window.chrome.runtime.lastError = { message: error.message };
+        try { callback(fallbackValue); } finally { window.chrome.runtime.lastError = null; }
+      });
+    }
+    return promise;
+  }
+
+  function emitMessage(message, sender = {}, callback) {
+    return new Promise(resolve => {
+      let settled = false;
+      let asyncResponseExpected = false;
+      const finish = response => {
+        if (settled) return;
+        settled = true;
+        if (typeof callback === 'function') callback(response);
+        resolve(response);
+      };
+      for (const listener of [...listeners]) {
+        try {
+          const result = listener(message, sender, finish);
+          if (result === true) asyncResponseExpected = true;
+          else if (result !== undefined) finish(result);
+        } catch (error) {
+          console.warn('Eklenti mesajı işlenemedi:', error);
+        }
+      }
+      window.setTimeout(() => {
+        if (!settled && !asyncResponseExpected) finish(undefined);
+      }, 0);
+      window.setTimeout(() => finish(undefined), 15000);
+    });
+  }
+
+  const chromeApi = window.chrome || (window.chrome = {});
+  chromeApi.runtime = chromeApi.runtime || {};
+  chromeApi.runtime.id = extensionId;
+  chromeApi.runtime.lastError = null;
+  chromeApi.runtime.onMessage = onMessage;
+  chromeApi.runtime.getURL = relativePath => new URL(String(relativePath || ''), extensionRootUrl).href;
+  chromeApi.runtime.sendMessage = (message, optionsOrCallback, callback) => {
+    const responseCallback = typeof optionsOrCallback === 'function' ? optionsOrCallback : callback;
+    return emitMessage(message, { id: extensionId, url: location.href }, responseCallback);
+  };
+
+  chromeApi.storage = chromeApi.storage || {};
+  chromeApi.storage.local = {
+    get(keys, callback) {
+      return withCallback(sendHostRequest('storage-get', { keys }), callback, {});
+    },
+    set(items, callback) {
+      return withCallback(sendHostRequest('storage-set', { items: items || {} }), callback, undefined);
+    },
+    remove(keys, callback) {
+      return withCallback(sendHostRequest('storage-remove', { keys }), callback, undefined);
+    },
+    clear(callback) {
+      return withCallback(sendHostRequest('storage-clear'), callback, undefined);
+    }
+  };
+
+  chromeApi.tabs = chromeApi.tabs || {};
+  chromeApi.tabs.query = (queryInfo = {}, callback) => withCallback(
+    sendHostRequest('tabs-query', { queryInfo }), callback, []
+  );
+  chromeApi.tabs.executeScript = (tabId, details = {}, callback) => withCallback(
+    sendHostRequest('execute-script', { tabId, details }), callback, []
+  );
+
+  chromeApi.scripting = chromeApi.scripting || {};
+  chromeApi.scripting.executeScript = details => {
+    const requestDetails = { ...(details || {}) };
+    if (typeof requestDetails.func === 'function') requestDetails.func = requestDetails.func.toString();
+    return sendHostRequest('execute-script', {
+      tabId: requestDetails?.target?.tabId,
+      details: requestDetails
+    }).then(result => [{ frameId: 0, result }]);
+  };
+  chromeApi.scripting.insertCSS = details => sendHostRequest('insert-css', {
+    tabId: details?.target?.tabId,
+    details
+  });
+
+  window.addEventListener('message', event => {
+    if (event.source !== window.parent || !event.data || event.data.extensionId !== extensionId) return;
+    if (event.data.channel === 'chattarayici-extension-bridge-response') {
+      const request = pending.get(event.data.id);
+      if (!request) return;
+      pending.delete(event.data.id);
+      if (event.data.error) request.reject(new Error(event.data.error));
+      else request.resolve(event.data.result);
+    } else if (event.data.channel === 'chattarayici-extension-runtime-message') {
+      emitMessage(event.data.message, event.data.sender || {});
+    }
+  });
+}
+
+function inlineLocalPopupScripts(html, ext, popupDirectory) {
+  return html.replace(/<script\b([^>]*?)\bsrc\s*=\s*(["'])(.*?)\2([^>]*)>\s*<\/script\s*>/gis,
+    (tag, beforeSrc, _quote, source, afterSrc) => {
+      if (/^(?:[a-z]+:)?\/\//i.test(source) || /^(?:data:|blob:|chrome-extension:)/i.test(source)) return tag;
+      try {
+        const cleanSource = decodeURIComponent(source.split(/[?#]/, 1)[0]);
+        const scriptPath = cleanSource.startsWith('/')
+          ? path.resolve(ext.path, cleanSource.replace(/^\/+/, ''))
+          : path.resolve(popupDirectory, cleanSource);
+        const relativePath = path.relative(ext.path, scriptPath);
+        if (relativePath.startsWith('..') || path.isAbsolute(relativePath) || !fs.existsSync(scriptPath)) return tag;
+        const attributes = `${beforeSrc}${afterSrc}`;
+        const script = fs.readFileSync(scriptPath, 'utf8').replace(/<\/script/gi, '<\\/script');
+        return `<script${attributes}>${script}</script>`;
+      } catch {
+        return tag;
+      }
+    });
+}
+
+function getPopupCompatibilityHtml(ext, popupInfo) {
+  const popupFilePath = path.resolve(ext.path, ext.popupFile);
+  const popupDirectory = path.dirname(popupFilePath);
+  const baseHref = pathToFileURL(`${popupDirectory}${path.sep}`).href;
+  const extensionRootUrl = pathToFileURL(`${path.resolve(ext.path)}${path.sep}`).href;
+  const bridgeScript = `(${installPopupExtensionCompatibility.toString()})(${JSON.stringify(ext.id)}, ${JSON.stringify(extensionRootUrl)});`
+    .replace(/<\/script/gi, '<\\/script');
+  const baseTag = `<base href="${escapeHtml(baseHref)}">`;
+  const bridgeTag = `<script>${bridgeScript}</script>`;
+  let html = popupInfo.html || '<!doctype html><html><head></head><body></body></html>';
+
+  // A copied extension page may bring a Chrome-only CSP that blocks the app's bridge.
+  html = html.replace(/<meta\b[^>]*http-equiv\s*=\s*(["'])?content-security-policy\1?[^>]*>/gi, '');
+  html = inlineLocalPopupScripts(html, ext, popupDirectory);
+  const backgroundScript = ext.manifest?.background?.service_worker;
+  if (backgroundScript) {
+    const workerPath = path.resolve(ext.path, backgroundScript);
+    const relativeWorker = path.relative(ext.path, workerPath);
+    if (!relativeWorker.startsWith('..') && !path.isAbsolute(relativeWorker) && fs.existsSync(workerPath)) {
+      const type = ext.manifest.background.type === 'module' ? ' type="module"' : '';
+      const workerSource = fs.readFileSync(workerPath, 'utf8').replace(/<\/script/gi, '<\\/script');
+      const workerTag = `<script${type}>${workerSource}</script>`;
+      html = html.replace(/<head\b[^>]*>/i, match => `${match}${baseTag}${bridgeTag}${workerTag}`);
+      if (!/<head\b/i.test(popupInfo.html)) html = `<!doctype html><html><head>${baseTag}${bridgeTag}${workerTag}</head><body>${html}</body></html>`;
+    }
+  }
+
+  if (!/<head\b/i.test(html)) {
+    return `<!doctype html><html><head>${baseTag}${bridgeTag}</head><body>${html}</body></html>`;
+  }
+  if (!html.includes(baseTag)) {
+    html = html.replace(/<head\b[^>]*>/i, match => `${match}${baseTag}${bridgeTag}`);
+  }
+  return html;
+}
+
+function getCompatibilityTabInfo() {
+  if (!activeTabId) return null;
+  const tab = tabs.find(entry => entry.id === activeTabId);
+  const webview = getActiveWebview();
+  if (!tab || !webview || tab.incognito) return null;
+
+  let url = tab.url;
+  let title = tab.title;
+  try { url = webview.getURL() || url; } catch {}
+  try { title = webview.getTitle() || title; } catch {}
+  if (!/^https?:\/\//i.test(url || '')) return null;
+
+  const numericId = Number(String(activeTabId).replace(/^tab-/, ''));
+  if (!Number.isSafeInteger(numericId)) return null;
+  return { id: numericId, url, title: title || url, active: true, currentWindow: true, windowId: 1 };
+}
+
+function matchExtensionQuery(value, pattern) {
+  const patterns = Array.isArray(pattern) ? pattern : [pattern];
+  return patterns.some(candidate => {
+    try {
+      const escaped = String(candidate).split('*').map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*');
+      const regex = new RegExp(`^${escaped}$`);
+      return regex.test(value || '');
+    } catch { return false; }
+  });
+}
+
+function getExtensionStorageKeys(extId) {
+  return `chattarayici.extension.${encodeURIComponent(extId)}.`;
+}
+
+async function handleExtensionPopupBridgeMessage(event) {
+  const frame = document.getElementById('extension-popup-frame');
+  const data = event.data;
+  if (!frame || event.source !== frame.contentWindow || !data || data.channel !== 'chattarayici-extension-bridge') return false;
+  if (data.extensionId !== activePopupExtensionId || !data.id) return false;
+
+  const ext = extensionManager.extensions.get(data.extensionId);
+  const respond = (result, error = '') => event.source.postMessage({
+    channel: 'chattarayici-extension-bridge-response',
+    extensionId: data.extensionId,
+    id: data.id,
+    result,
+    error
+  }, '*');
+  if (!ext || !ext.enabled) {
+    respond(null, 'Eklenti etkin değil.');
+    return true;
+  }
+
+  try {
+    const payload = data.payload || {};
+    if (data.type === 'tabs-query') {
+      const tab = getCompatibilityTabInfo();
+      const query = payload.queryInfo || {};
+      if (!tab || query.active === false || query.currentWindow === false) return respond([]), true;
+      if (query.url && !matchExtensionQuery(tab.url, query.url)) return respond([]), true;
+      if (query.title && !matchExtensionQuery(tab.title, query.title)) return respond([]), true;
+      respond([tab]);
+      return true;
+    }
+
+    const storagePrefix = getExtensionStorageKeys(data.extensionId);
+    if (data.type === 'storage-get') {
+      const keys = payload.keys;
+      const result = {};
+      if (keys == null) {
+        for (let index = 0; index < localStorage.length; index++) {
+          const key = localStorage.key(index);
+          if (key?.startsWith(storagePrefix)) {
+            try { result[key.slice(storagePrefix.length)] = JSON.parse(localStorage.getItem(key)); } catch {}
+          }
+        }
+      } else {
+        const requested = typeof keys === 'string' ? [keys]
+          : Array.isArray(keys) ? keys
+            : Object.keys(keys);
+        for (const key of requested) {
+          const stored = localStorage.getItem(`${storagePrefix}${key}`);
+          if (stored !== null) {
+            try { result[key] = JSON.parse(stored); } catch { result[key] = stored; }
+          } else if (!Array.isArray(keys) && keys && typeof keys === 'object') {
+            result[key] = keys[key];
+          }
+        }
+      }
+      respond(result);
+      return true;
+    }
+    if (data.type === 'storage-set') {
+      for (const [key, value] of Object.entries(payload.items || {})) localStorage.setItem(`${storagePrefix}${key}`, JSON.stringify(value));
+      respond(undefined);
+      return true;
+    }
+    if (data.type === 'storage-remove' || data.type === 'storage-clear') {
+      const keys = data.type === 'storage-clear' ? null : (Array.isArray(payload.keys) ? payload.keys : [payload.keys]);
+      if (keys === null) {
+        for (let index = localStorage.length - 1; index >= 0; index--) {
+          const key = localStorage.key(index);
+          if (key?.startsWith(storagePrefix)) localStorage.removeItem(key);
+        }
+      } else {
+        for (const key of keys.filter(value => typeof value === 'string')) localStorage.removeItem(`${storagePrefix}${key}`);
+      }
+      respond(undefined);
+      return true;
+    }
+
+    const tab = getCompatibilityTabInfo();
+    const webview = getActiveWebview();
+    const requestedTabId = payload.tabId ?? payload.details?.target?.tabId;
+    if (!tab || !webview) throw new Error('Önce normal bir web sayfası aç. Gizli sekmelerde eklenti çalıştırma kapalı.');
+    if (requestedTabId != null && Number(requestedTabId) !== tab.id) throw new Error('Eklenti için etkin sekme değişti; paneli yeniden aç.');
+
+    if (data.type === 'execute-script') {
+      const details = payload.details || {};
+      let injectedCode = '';
+      if (typeof details.func === 'function' || typeof details.func === 'string') {
+        const funcSource = typeof details.func === 'string' ? details.func : details.func;
+        const args = JSON.stringify(Array.isArray(details.args) ? details.args : []);
+        injectedCode = `(${funcSource})(...${args})`;
+      } else if (typeof details.code === 'string') {
+        injectedCode = details.code;
+      } else if (Array.isArray(details.files) && details.files.length) {
+        const pieces = details.files.map(file => {
+          const filePath = path.resolve(ext.path, file);
+          const relativeFile = path.relative(ext.path, filePath);
+          if (relativeFile.startsWith('..') || path.isAbsolute(relativeFile) || !fs.existsSync(filePath)) throw new Error(`Eklenti dosyası bulunamadı: ${file}`);
+          return fs.readFileSync(filePath, 'utf8');
+        });
+        injectedCode = pieces.join('\n;\n');
+      } else {
+        throw new Error('Bu eklenti betik biçimi desteklenmiyor.');
+      }
+
+      const runtimePrelude = `(() => { const root=window.chrome||(window.chrome={}); const runtime=root.runtime||(root.runtime={}); const prior=runtime.sendMessage; runtime.sendMessage=(message,...args)=>{ (window.__chattarayiciExtensionMessages||(window.__chattarayiciExtensionMessages=[])).push({extensionId:${JSON.stringify(data.extensionId)},message}); if(typeof prior==='function') return prior.call(runtime,message,...args); }; })();`;
+      const result = await webview.executeJavaScript(`${runtimePrelude}\n${injectedCode}`, true);
+      respond(result === undefined ? null : result);
+      return true;
+    }
+    if (data.type === 'insert-css') {
+      const details = payload.details || {};
+      let css = details.css || '';
+      if (!css && details.files?.length) {
+        css = details.files.map(file => {
+          const filePath = path.resolve(ext.path, file);
+          const relativeFile = path.relative(ext.path, filePath);
+          if (relativeFile.startsWith('..') || path.isAbsolute(relativeFile) || !fs.existsSync(filePath)) throw new Error(`Eklenti dosyası bulunamadı: ${file}`);
+          return fs.readFileSync(filePath, 'utf8');
+        }).join('\n');
+      }
+      await webview.insertCSS(css);
+      respond(undefined);
+      return true;
+    }
+  } catch (error) {
+    respond(null, error?.message || String(error));
+    return true;
+  }
+  respond(null, `Desteklenmeyen eklenti isteği: ${data.type}`);
+  return true;
+}
+
+function startExtensionPopupBridgePolling(extensionId) {
+  if (extensionPopupBridgePollTimer) clearInterval(extensionPopupBridgePollTimer);
+  let polling = false;
+  extensionPopupBridgePollTimer = setInterval(async () => {
+    if (polling || activePopupExtensionId !== extensionId) return;
+    const webview = getActiveWebview();
+    const frame = document.getElementById('extension-popup-frame');
+    if (!webview || !frame || frame.classList.contains('hidden')) return;
+    polling = true;
+    try {
+      const messages = await webview.executeJavaScript(`(() => { const queue=window.__chattarayiciExtensionMessages||[]; window.__chattarayiciExtensionMessages=[]; return queue; })()`);
+      if (Array.isArray(messages)) {
+        for (const entry of messages) {
+          if (entry?.extensionId === extensionId) frame.contentWindow.postMessage({
+            channel: 'chattarayici-extension-runtime-message',
+            extensionId,
+            message: entry.message,
+            sender: { tab: getCompatibilityTabInfo() }
+          }, '*');
+        }
+      }
+    } catch {} finally {
+      polling = false;
+    }
+  }, 120);
+}
+
 function openExtensionPopup(extId) {
   closeExtensionsDropdown();
   const container = document.getElementById('extension-popup-container');
@@ -1622,13 +2000,19 @@ function openExtensionPopup(extId) {
   const nativeInfo = nativeExtensionUrls.get(extId);
   activePopupExtensionId = extId;
   title.textContent = ext ? (ext.manifest.name || ext.id) : 'Eklenti';
+  frame.removeAttribute('srcdoc');
   frame.src = 'about:blank';
   frame.classList.add('hidden');
   nativeFrame.src = 'about:blank';
   nativeFrame.classList.add('hidden');
 
+  const needsCompatibilityBridge = Boolean(ext?.manifest?.manifest_version === 3 && ext.manifest?.background?.service_worker);
   if (ext && ext.popupFile) {
-    if (nativeInfo && nativeInfo.url && !popupUsesParentMessaging(ext, popupInfo.html)) {
+    if (needsCompatibilityBridge) {
+      frame.classList.remove('hidden');
+      frame.srcdoc = getPopupCompatibilityHtml(ext, popupInfo);
+      startExtensionPopupBridgePolling(extId);
+    } else if (nativeInfo && nativeInfo.url && !popupUsesParentMessaging(ext, popupInfo.html)) {
       const popupUrl = new URL(ext.popupFile, nativeInfo.url.endsWith('/') ? nativeInfo.url : `${nativeInfo.url}/`);
       popupUrl.searchParams.set('enabled', String(!!ext.enabled));
       nativeFrame.classList.remove('hidden');
@@ -1654,14 +2038,23 @@ function closeExtensionPopup() {
   const nativeFrame = document.getElementById('extension-popup-webview');
   if (container) container.classList.add('hidden');
   if (frame) frame.src = 'about:blank';
+  if (frame) frame.removeAttribute('srcdoc');
   if (nativeFrame) {
     nativeFrame.src = 'about:blank';
     nativeFrame.classList.add('hidden');
+  }
+  if (extensionPopupBridgePollTimer) {
+    clearInterval(extensionPopupBridgePollTimer);
+    extensionPopupBridgePollTimer = null;
   }
   activePopupExtensionId = null;
 }
 
 window.addEventListener('message', (event) => {
+  if (event.data?.channel === 'chattarayici-extension-bridge') {
+    handleExtensionPopupBridgeMessage(event);
+    return;
+  }
   const frame = document.getElementById('extension-popup-frame');
   if (!frame || event.source !== frame.contentWindow || !activePopupExtensionId) return;
   if (!event.data || (event.data.type !== 'toggle-extension' && event.data.type !== 'toggle-adblock-extension')) return;

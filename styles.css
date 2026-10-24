@@ -2034,3 +2034,162 @@ input:checked + .slider:before {
     align-items: flex-start;
   }
 }
+
+/* ===== Polished interaction motion ===== */
+@keyframes tabArrive {
+  from { opacity: 0; transform: translateY(7px) scale(.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes panelArrive {
+  from { opacity: 0; transform: translateY(-12px) scale(.97); filter: blur(3px); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes cardArrive {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes iconBreathe {
+  0%, 100% { filter: drop-shadow(0 0 0 rgba(168, 85, 247, 0)); }
+  50% { filter: drop-shadow(0 0 7px rgba(168, 85, 247, .6)); }
+}
+
+@keyframes accentSweep {
+  from { background-position: 0% 50%; }
+  to { background-position: 200% 50%; }
+}
+
+#app-icon {
+  animation: iconBreathe 3.4s ease-in-out infinite;
+}
+
+.tab {
+  animation: tabArrive .24s cubic-bezier(.2, .7, .25, 1) both;
+}
+
+.tab.active {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07), 0 -3px 14px rgba(108, 99, 255, .09);
+}
+
+.tab-close:active,
+.nav-btn:active,
+.ext-toolbar-icon:active,
+.btn-primary:active,
+.btn-secondary:active,
+.btn-danger:active,
+.popup-close-btn:active,
+.modal-close-btn:active {
+  transform: scale(.92);
+}
+
+.nav-btn i,
+.window-btn i,
+.ext-toolbar-icon i,
+.extension-avatar i {
+  transition: transform .22s cubic-bezier(.2, .7, .25, 1), filter .22s ease;
+}
+
+.nav-btn:hover i { transform: translateY(-1px) scale(1.12); }
+.window-btn:hover i { transform: scale(1.12) rotate(-5deg); }
+.ext-toolbar-icon:hover i,
+.extension-card:hover .extension-avatar i { transform: rotate(-8deg) scale(1.16); }
+
+#btn-go:hover i {
+  animation: arrowNudge .55s ease-in-out infinite alternate;
+}
+
+@keyframes arrowNudge {
+  from { transform: translateX(-1px); }
+  to { transform: translateX(2px); }
+}
+
+.bookmark-item:hover,
+.ext-dropdown-item:hover {
+  transform: translateX(3px);
+}
+
+.ext-toolbar-icon:hover,
+.extension-avatar {
+  box-shadow: 0 0 0 1px rgba(168, 85, 247, .08);
+}
+
+#extension-popup-container {
+  animation: panelArrive .28s cubic-bezier(.2, .7, .25, 1) both;
+  transform-origin: top right;
+}
+
+#extension-popup-header {
+  background-image: linear-gradient(110deg, var(--bg-tertiary), rgba(108, 99, 255, .12), var(--bg-tertiary));
+  background-size: 220% 100%;
+  animation: accentSweep 7s ease-in-out infinite alternate;
+}
+
+.extension-card,
+.store-card {
+  animation: cardArrive .32s cubic-bezier(.2, .7, .25, 1) both;
+  transition: transform .22s cubic-bezier(.2, .7, .25, 1), border-color .22s ease, background-color .22s ease, box-shadow .22s ease;
+}
+
+.extension-card:hover,
+.store-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, .2), 0 0 18px rgba(108, 99, 255, .07);
+}
+
+.extension-card:nth-child(2), .store-card:nth-child(2) { animation-delay: .035s; }
+.extension-card:nth-child(3), .store-card:nth-child(3) { animation-delay: .07s; }
+.extension-card:nth-child(4), .store-card:nth-child(4) { animation-delay: .105s; }
+.extension-card:nth-child(5), .store-card:nth-child(5) { animation-delay: .14s; }
+.extension-card:nth-child(n+6), .store-card:nth-child(n+6) { animation-delay: .17s; }
+
+.extension-avatar img,
+.ext-toolbar-icon img {
+  transition: transform .24s cubic-bezier(.2, .7, .25, 1), filter .24s ease;
+}
+
+.extension-card:hover .extension-avatar img,
+.ext-toolbar-icon:hover img {
+  transform: scale(1.1);
+  filter: saturate(1.15);
+}
+
+.modal-card {
+  transform-origin: center;
+  transition: box-shadow .25s ease;
+}
+
+.modal-overlay:not(.hidden) .modal-card {
+  box-shadow: 0 28px 76px rgba(0, 0, 0, .62), 0 0 32px rgba(108, 99, 255, .12);
+}
+
+.slider:before {
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .28);
+}
+
+.switch input:checked + .slider {
+  box-shadow: 0 0 12px rgba(108, 99, 255, .28);
+}
+
+.btn-primary:hover,
+.btn-secondary:hover,
+.btn-danger:hover,
+.audio-boost-mode:hover {
+  transform: translateY(-1px);
+}
+
+.loading-bar:not(.hidden) {
+  background: linear-gradient(90deg, var(--accent-primary), #d946ef, var(--accent-primary));
+  background-size: 200% 100%;
+  animation: accentSweep .8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
