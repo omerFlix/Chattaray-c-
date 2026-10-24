@@ -24,14 +24,51 @@ function prepareExtensionsDirectory() {
   const writableDir = path.join(app.getPath('userData'), 'extensions');
   fs.mkdirSync(writableDir, { recursive: true });
 
-  // Seed the writable user directory with bundled extensions once. Existing user
-  // copies and their settings are preserved across installs and app updates.
   const bundledDir = path.join(__dirname, 'extensions');
-  const bundledExtensionIds = [];
+  const writableState = path.join(writableDir, '.enabled.json');
+  const bundledState = path.join(bundledDir, '.enabled.json');
+  const permanentlyRemovedIds = ['karanlik-mod'];
+  const bundledExtensionIds = fs.existsSync(bundledDir)
+    ? fs.readdirSync(bundledDir, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
+      .map(entry => entry.name)
+    : [];
+
+  let state = { enabled: [], known: [], removed: [] };
+  const hasWritableState = fs.existsSync(writableState);
+  try {
+    if (hasWritableState) {
+      state = JSON.parse(fs.readFileSync(writableState, 'utf-8'));
+    } else if (fs.existsSync(bundledState)) {
+      state = JSON.parse(fs.readFileSync(bundledState, 'utf-8'));
+      state.known = Array.isArray(state.known) ? state.known : bundledExtensionIds;
+    }
+  } catch (e) {
+    console.warn('Could not read extension settings:', e);
+    state = { enabled: [], known: [], removed: [] };
+  }
+
+  state.enabled = Array.isArray(state.enabled) ? state.enabled : [];
+  state.known = Array.isArray(state.known) ? state.known : [];
+  state.removed = Array.isArray(state.removed) ? state.removed : [];
+
+  // Keep explicitly deleted bundled extensions deleted across app updates.
+  for (const extId of permanentlyRemovedIds) {
+    const removedPath = path.join(writableDir, extId);
+    try {
+      fs.rmSync(removedPath, { recursive: true, force: true });
+    } catch (e) {
+      console.warn('Could not remove retired extension:', extId, e);
+    }
+    state.enabled = state.enabled.filter(id => id !== extId);
+    if (!state.known.includes(extId)) state.known.push(extId);
+    if (!state.removed.includes(extId)) state.removed.push(extId);
+  }
+
   if (fs.existsSync(bundledDir) && path.resolve(bundledDir) !== path.resolve(writableDir)) {
+    const removedIds = new Set(state.removed);
     for (const entry of fs.readdirSync(bundledDir, { withFileTypes: true })) {
-      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-      bundledExtensionIds.push(entry.name);
+      if (!entry.isDirectory() || entry.name.startsWith('.') || removedIds.has(entry.name)) continue;
       const source = path.join(bundledDir, entry.name);
       const destination = path.join(writableDir, entry.name);
       if (!fs.existsSync(destination)) {
@@ -42,22 +79,12 @@ function prepareExtensionsDirectory() {
         }
       }
     }
+  }
 
-    // Carry forward the old extension enablement file and record all bundled
-    // extensions as known, so previously disabled extensions stay disabled.
-    const bundledState = path.join(bundledDir, '.enabled.json');
-    const writableState = path.join(writableDir, '.enabled.json');
-    if (fs.existsSync(bundledState) && !fs.existsSync(writableState)) {
-      try {
-        const oldState = JSON.parse(fs.readFileSync(bundledState, 'utf-8'));
-        fs.writeFileSync(writableState, JSON.stringify({
-          enabled: Array.isArray(oldState.enabled) ? oldState.enabled : [],
-          known: Array.isArray(oldState.known) ? oldState.known : bundledExtensionIds
-        }, null, 2));
-      } catch (e) {
-        console.warn('Could not migrate extension settings:', e);
-      }
-    }
+  try {
+    fs.writeFileSync(writableState, JSON.stringify(state, null, 2));
+  } catch (e) {
+    console.warn('Could not save extension settings:', e);
   }
 
   return writableDir;

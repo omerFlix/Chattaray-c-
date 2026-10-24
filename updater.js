@@ -10,10 +10,7 @@ class CentralUpdater {
 
     // Default configuration: central GitHub repo
     this.config = {
-      githubRepo: 'omerFlix/Chattaray-c-', // GitHub kullanıcı/repo adı
-      branch: 'main',
-      autoCheck: false,
-      checkIntervalMinutes: 10
+      githubRepo: 'omerFlix/Chattaray-c-' // GitHub kullanıcı/repo adı
     };
 
     this.loadConfig();
@@ -44,7 +41,10 @@ class CentralUpdater {
 
   // Central update check from GitHub
   async checkForUpdates(silent = false) {
-    const repo = (this.config.githubRepo || '').trim().replace('https://github.com/', '').replace(/\/$/, '');
+    const repo = (this.config.githubRepo || '').trim()
+      .replace(/^https?:\/\/github\.com\//i, '')
+      .replace(/\.git$/i, '')
+      .replace(/\/$/, '');
     if (!repo) {
       if (!silent && this.onError) {
         this.onError('GitHub repository adı ayarlanmamış!');
@@ -52,14 +52,18 @@ class CentralUpdater {
       return false;
     }
 
-    const branch = this.config.branch || 'main';
+    if (!/^[^/]+\/[^/]+$/.test(repo)) {
+      if (!silent && this.onError) this.onError('GitHub deposunu kullanici/repo biçiminde girin.');
+      return false;
+    }
 
     try {
       if (!silent && this.onStatus) this.onStatus('Merkezi güncelleme kontrol ediliyor...');
 
-      const rawBase = 'https://raw.githubusercontent.com/' + repo + '/' + branch;
-      const remotePkgStr = await this.httpGetText(rawBase + '/package.json');
-      const remotePkg = JSON.parse(remotePkgStr);
+      // A source-control package.json change is not a published app build.
+      // Only compare against an actual GitHub Release to avoid false updates.
+      const releaseText = await this.httpGetText('https://api.github.com/repos/' + repo + '/releases/latest');
+      const release = JSON.parse(releaseText);
 
       const localPkgPath = path.join(this.appRoot, 'package.json');
       let localPkg = { version: '1.0.0' };
@@ -67,19 +71,26 @@ class CentralUpdater {
         localPkg = JSON.parse(fs.readFileSync(localPkgPath, 'utf-8'));
       }
 
-      const remoteVersion = remotePkg.version || '1.0.0';
+      const remoteVersion = String(release.tag_name || '').replace(/^v/i, '').trim();
+      if (!remoteVersion) throw new Error('GitHub sürüm etiketi bulunamadı.');
       const localVersion = localPkg.version || '1.0.0';
       const updateAvailable = remoteVersion !== localVersion;
 
       if (!silent && this.onStatus) {
         this.onStatus(updateAvailable
-          ? 'Depoda ' + remoteVersion + ' sürümü var. Güncellemeyi yayınlanan kurulum dosyasından yükleyin.'
-          : 'Uygulamanız güncel (' + localVersion + ').');
+          ? 'GitHub Releases bölümünde v' + remoteVersion + ' yayınlanmış. Kurulum dosyasını buradan indirin: ' + (release.html_url || 'https://github.com/' + repo + '/releases/latest')
+          : 'Yayınlanmış kurulum sürümünüz güncel (v' + localVersion + ').');
       }
 
-      // This tool only checks versions. It must never overwrite the running app's source files.
+      // This tool only checks published releases. It never overwrites app files.
       return updateAvailable;
     } catch (e) {
+      if (e.statusCode === 404) {
+        if (!silent && this.onStatus) {
+          this.onStatus('Bu depoda yayımlanmış bir GitHub Release yok. package.json değişikliği kurulum güncellemesi sayılmaz.');
+        }
+        return false;
+      }
       if (!silent && this.onError) {
         this.onError(`Güncelleme denetlenemedi: ${e.message}`);
       }
@@ -94,6 +105,8 @@ class CentralUpdater {
       const req = client.get(url, {
         headers: {
           'User-Agent': 'ChatTarayici-Updater',
+          'Accept': 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
           'Cache-Control': 'no-cache, no-store'
         },
         timeout: 10000
@@ -104,7 +117,9 @@ class CentralUpdater {
         }
 
         if (res.statusCode !== 200) {
-          reject(new Error(`HTTP ${res.statusCode}`));
+          const error = new Error(`HTTP ${res.statusCode}`);
+          error.statusCode = res.statusCode;
+          reject(error);
           return;
         }
 

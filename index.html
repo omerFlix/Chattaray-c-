@@ -78,7 +78,7 @@
       </button>
 
       <!-- Central Updates Button -->
-      <button class="nav-btn" id="sync-btn" onclick="toggleUpdatesModal()" title="Otomatik Güncellemeler">
+      <button class="nav-btn" id="sync-btn" onclick="toggleUpdatesModal()" title="Güncellemeleri Denetle">
         <i class="fas fa-cloud-arrow-down"></i>
         <span id="sync-badge" class="badge-dot hidden"></span>
       </button>
@@ -201,7 +201,7 @@
     </div>
   </div>
 
-  <!-- ==================== OTOMATİK GÜNCELLEME MODALI ==================== -->
+  <!-- ==================== GÜNCELLEME DENETİMİ MODALI ==================== -->
   <div id="updates-modal" class="modal-overlay hidden">
     <div class="modal-card" style="width: 540px;">
       <div class="modal-header">
@@ -218,14 +218,11 @@
           </p>
 
           <div class="form-group">
-            <label>Merkezi GitHub Repository (kullanici/repo):</label>
+            <label>GitHub Repository (kullanici/repo):</label>
             <input type="text" id="github-repo-input" placeholder="Örn: o4088/ChatTarayici">
           </div>
 
-          <div class="form-group">
-            <label>Branch (Dal):</label>
-            <input type="text" id="github-branch-input" placeholder="main" value="main">
-          </div>
+          <p class="sync-description">Denetim yalnızca yayımlanmış GitHub Releases sürümlerini kontrol eder. Kaynak kod veya package.json değişiklikleri uygulama güncellemesi sayılmaz.</p>
 
           <div style="margin-top: 18px; display:flex; gap:10px;">
             <button class="btn-primary" onclick="checkCentralUpdateNow()">

@@ -7,6 +7,7 @@ class ExtensionManager {
     this.extensions = new Map();
     this.enabledExtensions = new Set();
     this.knownExtensions = new Set();
+    this.removedExtensions = new Set();
 
     // Create extensions dir if not exists
     if (!fs.existsSync(this.extensionsDir)) {
@@ -24,6 +25,7 @@ class ExtensionManager {
         const data = JSON.parse(fs.readFileSync(this.stateFile, 'utf-8'));
         this.enabledExtensions = new Set(data.enabled || []);
         this.knownExtensions = new Set(data.known || data.enabled || []);
+        this.removedExtensions = new Set(data.removed || []);
       }
     } catch (e) {
       console.error('Failed to load extension state:', e);
@@ -34,7 +36,8 @@ class ExtensionManager {
     try {
       fs.writeFileSync(this.stateFile, JSON.stringify({
         enabled: Array.from(this.enabledExtensions),
-        known: Array.from(this.knownExtensions)
+        known: Array.from(this.knownExtensions),
+        removed: Array.from(this.removedExtensions)
       }, null, 2));
     } catch (e) {
       console.error('Failed to save extension state:', e);
@@ -52,6 +55,8 @@ class ExtensionManager {
       .filter(d => d.isDirectory() && !d.name.startsWith('.'));
 
     for (const dir of dirs) {
+      if (this.removedExtensions.has(dir.name)) continue;
+
       const extPath = path.join(this.extensionsDir, dir.name);
       const manifestPath = path.join(extPath, 'manifest.json');
 
@@ -170,6 +175,7 @@ class ExtensionManager {
     ext.enabled = true;
     this.enabledExtensions.add(extId);
     this.knownExtensions.add(extId);
+    this.removedExtensions.delete(extId);
     this.saveState();
     return true;
   }
@@ -190,6 +196,9 @@ class ExtensionManager {
 
     try {
       fs.rmSync(ext.path, { recursive: true, force: true });
+      if (fs.existsSync(ext.path)) {
+        throw new Error('Eklenti klasörü silinemedi. Klasör başka bir işlem tarafından kullanılıyor olabilir.');
+      }
     } catch (e) {
       console.error(`Failed to delete extension ${extId}:`, e);
       return false;
@@ -197,6 +206,8 @@ class ExtensionManager {
 
     this.extensions.delete(extId);
     this.enabledExtensions.delete(extId);
+    this.knownExtensions.delete(extId);
+    this.removedExtensions.add(extId);
     this.saveState();
     return true;
   }
@@ -218,6 +229,8 @@ class ExtensionManager {
 
     // Enable by default
     this.enabledExtensions.add(extId);
+    this.knownExtensions.add(extId);
+    this.removedExtensions.delete(extId);
     this.saveState();
 
     // Reload

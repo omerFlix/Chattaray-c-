@@ -662,7 +662,7 @@ function showSettings() {
       <div class="setting"><label>Sürüm</label><p>ChatTarayıcı v1.0.0</p></div>
       <div class="setting"><label>Motor</label><p>Chromium (Electron)</p></div>
       <div class="setting"><label>Eklenti Desteği</label><p>Aktif ✅ (Chrome Manifest Uyumlu)</p></div>
-      <div class="setting"><label>Merkezi Otomatik Güncelleme</label><p>Aktif ✅ (GitHub)</p></div>
+      <div class="setting"><label>Güncelleme Denetimi</label><p>Yalnızca sen istediğinde yayımlanmış sürümleri kontrol eder; uygulama kendiliğinden güncellenmez.</p></div>
       <div class="setting"><label>Reklam Engelleyici</label><p>Aktif ✅</p></div>
       <div class="version">ChatTarayıcı — Modern, hızlı ve tam donanımlı tarayıcınız</div>
     </body></html>
@@ -885,8 +885,16 @@ function toggleExtensionState(extId, isEnabled) {
 
 function deleteExtension(extId) {
   if (confirm(`"${extId}" eklentisini tamamen silmek istediğine emin misin?`)) {
-    extensionManager.removeExtension(extId);
+    const removed = extensionManager.removeExtension(extId);
+    if (!removed) {
+      alert(`"${extId}" eklentisi silinemedi. Uygulama klasörüne erişim engellenmiş olabilir.`);
+      return;
+    }
     renderExtensionsList();
+    document.querySelectorAll('#webview-container webview').forEach((webview) => {
+      if (webview.getURL && webview.getURL().startsWith('http')) webview.reload();
+    });
+    setStatusText(`"${extId}" eklentisi silindi`);
   }
 }
 
@@ -939,21 +947,18 @@ function toggleUpdatesModal() {
 
   if (!modal.classList.contains('hidden')) {
     document.getElementById('github-repo-input').value = updater.config.githubRepo || '';
-    document.getElementById('github-branch-input').value = updater.config.branch || 'main';
   }
 }
 
 async function checkCentralUpdateNow() {
   const repo = document.getElementById('github-repo-input').value.trim();
-  const branch = document.getElementById('github-branch-input').value.trim() || 'main';
 
   if (!repo) {
-    alert('Lütfen GitHub Repo bilgisini girin! (Örn: o4088/ChatTarayici)');
+    alert('Lütfen GitHub Repository bilgisini girin! (Örn: omerFlix/Chattaray-c-)');
     return;
   }
 
   updater.config.githubRepo = repo;
-  updater.config.branch = branch;
   updater.saveConfig();
 
   setUpdateStatus('GitHub üzerinden en son güncellemeler denetleniyor...', false);
@@ -962,7 +967,6 @@ async function checkCentralUpdateNow() {
 
 function saveCentralUpdateSettings() {
   updater.config.githubRepo = document.getElementById('github-repo-input').value.trim();
-  updater.config.branch = document.getElementById('github-branch-input').value.trim() || 'main';
   updater.saveConfig();
   alert('Güncelleme ayarları kaydedildi!');
 }
