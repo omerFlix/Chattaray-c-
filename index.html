@@ -72,6 +72,29 @@
       <!-- Dynamic Extension Icons Bar -->
       <div id="active-extensions-bar"></div>
 
+      <div id="audio-boost-container">
+        <button class="nav-btn" id="audio-boost-btn" onclick="toggleAudioBoostPanel()" title="Ses Yükseltici" aria-expanded="false">
+          <i class="fas fa-volume-high"></i>
+        </button>
+        <div id="audio-boost-popover" class="hidden" role="dialog" aria-label="Ses Yükseltici">
+          <div class="audio-boost-header">
+            <strong><i class="fas fa-volume-high"></i> Ses Yükseltici</strong>
+            <button class="audio-boost-close" onclick="closeAudioBoostPanel()" title="Kapat"><i class="fas fa-xmark"></i></button>
+          </div>
+          <div class="audio-boost-level-row">
+            <label for="audio-boost-level">Bu sekmenin sesi</label>
+            <strong id="audio-boost-value">100%</strong>
+          </div>
+          <input id="audio-boost-level" type="range" min="100" max="600" step="10" value="100" oninput="setAudioBoostLevel(this.value)">
+          <div class="audio-boost-range-labels"><span>Normal</span><span>600%</span></div>
+          <div class="audio-boost-modes">
+            <button id="audio-bass-boost" class="audio-boost-mode" onclick="toggleAudioBassBoost()"><i class="fas fa-wave-square"></i> Bas güçlendir</button>
+            <button id="audio-voice-boost" class="audio-boost-mode" onclick="toggleAudioVoiceBoost()"><i class="fas fa-microphone"></i> Konuşma netliği</button>
+          </div>
+          <p id="audio-boost-note">Ses çok açıldığında bozulma olabilir. Bazı sitelerin medya güvenliği yükseltmeyi engelleyebilir.</p>
+        </div>
+      </div>
+
       <!-- Extensions Button (Opens Chrome-style quick extensions menu) -->
       <button class="nav-btn" id="extensions-btn" onclick="toggleExtensionsDropdown()" title="Eklentiler">
         <i class="fas fa-puzzle-piece"></i>
@@ -126,6 +149,9 @@
     <div class="menu-separator"></div>
     <div class="menu-item" onclick="showHistory()">
       <i class="fas fa-clock-rotate-left"></i> Geçmiş
+    </div>
+    <div class="menu-item" onclick="clearBrowsingHistory()">
+      <i class="fas fa-trash-can"></i> Geçmişi Temizle
     </div>
     <div class="menu-item" onclick="showBookmarksManager()">
       <i class="fas fa-bookmark"></i> Yer İşaretleri

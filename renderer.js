@@ -11,8 +11,18 @@ let tabs = [];
 let activeTabId = null;
 let tabIdCounter = 0;
 let bookmarks = loadStoredArray('bookmarks');
-let history = loadStoredArray('browsingHistory');
+let history = loadStoredArray('browsingHistory').filter(entry => isHistoryWebUrl(entry.url));
+const historyPageTabIds = new Set();
 let zoomLevels = {};
+const audioBoostDefaults = {
+  level: Number(localStorage.getItem('audioBoostLevel') || 100),
+  bass: localStorage.getItem('audioBassBoost') === 'true',
+  voice: localStorage.getItem('audioVoiceBoost') === 'true'
+};
+if (!Number.isFinite(audioBoostDefaults.level)) audioBoostDefaults.level = 100;
+audioBoostDefaults.level = Math.min(600, Math.max(100, audioBoostDefaults.level));
+const audioBoostSettingsByTab = new Map();
+let audioBoostApplyTimer = null;
 
 const DEFAULT_HOME = 'about:newtab';
 const SEARCH_ENGINE = 'https://www.google.com/search?q=';
@@ -70,6 +80,7 @@ ipcRenderer.on('window-maximized', (event, isMaximized) => {
 // ===== Tab Management =====
 function createNewTab(url = null, incognito = false) {
   const tabId = `tab-${++tabIdCounter}`;
+  audioBoostSettingsByTab.set(tabId, { ...audioBoostDefaults });
 
   const tab = {
     id: tabId,
@@ -149,9 +160,23 @@ function createWebview(tabId, url, incognito = false) {
   // Inject content scripts safely ONLY after finish-load
   webview.addEventListener('did-finish-load', () => {
     injectExtensionScripts(webview);
+    applyAudioBoost(webview);
+  });
+
+  webview.addEventListener('will-navigate', (e) => {
+    if (isHistoryWebUrl(e.url)) {
+      historyPageTabIds.delete(tabId);
+    }
   });
 
   webview.addEventListener('did-navigate', (e) => {
+    if (e.url.startsWith('about:blank#clear-history')) {
+      clearBrowsingHistory(false);
+      historyPageTabIds.add(tabId);
+      webview.loadURL(getHistoryPageUrl()).catch(() => {});
+      return;
+    }
+    if (isHistoryPageUrl(e.url)) historyPageTabIds.add(tabId);
     const blockedPage = blockedPageByWebview.get(webview);
     if (blockedPage && e.url === blockedPage.pageUrl) {
       updateTabInfo(tabId, { url: blockedPage.url, title: 'Erişim engellendi' });
@@ -247,6 +272,187 @@ function injectExtensionScripts(webview) {
   }
 }
 
+function getAudioBoostSettings(tabId) {
+  return { ...(audioBoostSettingsByTab.get(tabId) || audioBoostDefaults) };
+}
+
+function getAudioBoostScript(settings) {
+  const payload = JSON.stringify({
+    gain: settings.level / 100,
+    bass: settings.bass,
+    voice: settings.voice
+  });
+  return `(() => {
+    const settings = ${payload};
+    let state = window.__chatTarayiciAudioBoostState;
+    if (!state) {
+      state = window.__chatTarayiciAudioBoostState = { context: null, items: new Map(), observer: null, settings };
+      state.scan = () => {
+        const enabled = state.settings.gain > 1 || state.settings.bass || state.settings.voice;
+        if (!enabled && state.items.size === 0) return { attached: 0, skipped: 0 };
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (!AudioContextClass) return { attached: 0, skipped: 0 };
+        if (state.context && state.context.state === 'suspended') state.context.resume().catch(() => {});
+        const elements = document.querySelectorAll('audio, video');
+        let skipped = 0;
+        for (const media of elements) {
+          let nodes = state.items.get(media);
+          if (!nodes) {
+            if (!enabled) continue;
+            const sourceUrl = media.currentSrc || media.src;
+            if (!sourceUrl) continue;
+            let parsedUrl;
+            try { parsedUrl = new URL(sourceUrl, location.href); } catch { continue; }
+            const hasCorsMode = Boolean(media.crossOrigin) || media.hasAttribute('crossorigin');
+            if (parsedUrl.origin !== location.origin && !hasCorsMode) { skipped++; continue; }
+            try {
+              state.context = state.context || new AudioContextClass();
+              if (state.context.state === 'suspended') state.context.resume().catch(() => {});
+              const source = state.context.createMediaElementSource(media);
+              const bass = state.context.createBiquadFilter();
+              bass.type = 'lowshelf';
+              bass.frequency.value = 140;
+              const voice = state.context.createBiquadFilter();
+              voice.type = 'peaking';
+              voice.frequency.value = 2800;
+              voice.Q.value = 0.9;
+              const gain = state.context.createGain();
+              const limiter = state.context.createDynamicsCompressor();
+              limiter.threshold.value = -4;
+              limiter.knee.value = 8;
+              limiter.ratio.value = 4;
+              limiter.attack.value = 0.004;
+              limiter.release.value = 0.22;
+              source.connect(bass);
+              bass.connect(voice);
+              voice.connect(gain);
+              gain.connect(limiter);
+              limiter.connect(state.context.destination);
+              nodes = { source, bass, voice, gain, limiter };
+              state.items.set(media, nodes);
+              media.addEventListener('play', () => state.context && state.context.resume().catch(() => {}));
+            } catch {
+              skipped++;
+              continue;
+            }
+          }
+          nodes.bass.gain.setTargetAtTime(state.settings.bass ? 5 : 0, state.context.currentTime, 0.08);
+          nodes.voice.gain.setTargetAtTime(state.settings.voice ? 4 : 0, state.context.currentTime, 0.08);
+          nodes.gain.gain.setTargetAtTime(state.settings.gain, state.context.currentTime, 0.08);
+        }
+        for (const [media, nodes] of state.items) {
+          if (!media.isConnected) {
+            try { nodes.source.disconnect(); } catch {}
+            try { nodes.bass.disconnect(); } catch {}
+            try { nodes.voice.disconnect(); } catch {}
+            try { nodes.gain.disconnect(); } catch {}
+            try { nodes.limiter.disconnect(); } catch {}
+            state.items.delete(media);
+          }
+        }
+        return { attached: state.items.size, skipped };
+      };
+      state.observer = new MutationObserver(() => {
+        clearTimeout(state.scanTimer);
+        state.scanTimer = setTimeout(() => state.scan(), 120);
+      });
+      if (document.documentElement) state.observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'crossorigin'] });
+      document.addEventListener('play', () => state.scan(), true);
+      document.addEventListener('loadedmetadata', () => state.scan(), true);
+    }
+    state.settings = settings;
+    return state.scan();
+  })()`;
+}
+
+function applyAudioBoost(webview) {
+  if (!webview) return Promise.resolve(null);
+  const tabId = webview.getAttribute('data-tab');
+  const settings = getAudioBoostSettings(tabId);
+  return webview.executeJavaScript(getAudioBoostScript(settings), true).then(result => {
+    const note = document.getElementById('audio-boost-note');
+    if (note && webview === getActiveWebview() && (settings.level > 100 || settings.bass || settings.voice)) {
+      if (result && result.attached === 0 && result.skipped > 0) {
+        note.textContent = 'Bu sitenin medya kaynağı ses yükseltmeye izin vermiyor. Normal ses oynatımı etkilenmez.';
+      } else if (result && result.attached === 0) {
+        note.textContent = 'Sayfada bir video veya ses oynatılınca yükseltme uygulanır.';
+      } else {
+        note.textContent = 'Ses çok açıldığında bozulma olabilir.';
+      }
+    }
+    return result;
+  }).catch(() => null);
+}
+
+function applyAudioBoostToActiveTab() {
+  if (audioBoostApplyTimer) clearTimeout(audioBoostApplyTimer);
+  audioBoostApplyTimer = setTimeout(() => applyAudioBoost(getActiveWebview()), 80);
+}
+
+function syncAudioBoostControls() {
+  const slider = document.getElementById('audio-boost-level');
+  const value = document.getElementById('audio-boost-value');
+  const bass = document.getElementById('audio-bass-boost');
+  const voice = document.getElementById('audio-voice-boost');
+  const button = document.getElementById('audio-boost-btn');
+  const note = document.getElementById('audio-boost-note');
+  const settings = getAudioBoostSettings(activeTabId);
+  const enabled = settings.level > 100 || settings.bass || settings.voice;
+  if (slider) slider.value = String(settings.level);
+  if (value) value.textContent = `${settings.level}%`;
+  if (bass) bass.classList.toggle('active', settings.bass);
+  if (voice) voice.classList.toggle('active', settings.voice);
+  if (button) button.classList.toggle('active', enabled);
+  if (note && !enabled) note.textContent = 'Ses çok açıldığında bozulma olabilir. Bazı sitelerin medya güvenliği yükseltmeyi engelleyebilir.';
+}
+
+function toggleAudioBoostPanel() {
+  closeMenu();
+  closeExtensionsDropdown();
+  const panel = document.getElementById('audio-boost-popover');
+  const button = document.getElementById('audio-boost-btn');
+  if (!panel) return;
+  const opening = panel.classList.contains('hidden');
+  panel.classList.toggle('hidden', !opening);
+  if (button) button.setAttribute('aria-expanded', String(opening));
+  syncAudioBoostControls();
+}
+
+function closeAudioBoostPanel() {
+  const panel = document.getElementById('audio-boost-popover');
+  const button = document.getElementById('audio-boost-btn');
+  if (panel) panel.classList.add('hidden');
+  if (button) button.setAttribute('aria-expanded', 'false');
+}
+
+function setAudioBoostLevel(value) {
+  const nextValue = Number(value);
+  if (!Number.isFinite(nextValue)) return;
+  updateAudioBoostSettings({ level: Math.min(600, Math.max(100, nextValue)) });
+}
+
+function toggleAudioBassBoost() {
+  updateAudioBoostSettings({ bass: !getAudioBoostSettings(activeTabId).bass });
+}
+
+function toggleAudioVoiceBoost() {
+  updateAudioBoostSettings({ voice: !getAudioBoostSettings(activeTabId).voice });
+}
+
+function updateAudioBoostSettings(changes) {
+  const settings = { ...getAudioBoostSettings(activeTabId), ...changes };
+  if (activeTabId) audioBoostSettingsByTab.set(activeTabId, settings);
+  const activeTab = tabs.find(tab => tab.id === activeTabId);
+  if (!activeTab || !activeTab.incognito) {
+    Object.assign(audioBoostDefaults, settings);
+    localStorage.setItem('audioBoostLevel', String(audioBoostDefaults.level));
+    localStorage.setItem('audioBassBoost', String(audioBoostDefaults.bass));
+    localStorage.setItem('audioVoiceBoost', String(audioBoostDefaults.voice));
+  }
+  syncAudioBoostControls();
+  applyAudioBoostToActiveTab();
+}
+
 function switchTab(tabId) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('#webview-container webview').forEach(w => w.classList.remove('active'));
@@ -275,6 +481,8 @@ function switchTab(tabId) {
   }
 
   activeTabId = tabId;
+  syncAudioBoostControls();
+  if (webview) applyAudioBoost(webview);
   updateZoomDisplay(tabId);
 
   if (tabEl) {
@@ -291,6 +499,8 @@ function closeTab(tabId) {
 
   const webview = document.querySelector(`webview[data-tab="${tabId}"]`);
   if (webview) webview.remove();
+  historyPageTabIds.delete(tabId);
+  audioBoostSettingsByTab.delete(tabId);
 
   tabs.splice(index, 1);
 
@@ -353,7 +563,7 @@ function getTabTitle(tabId) {
 }
 
 // ===== Navigation =====
-function navigateTo(input) {
+function navigateTo(input, internalPage = null) {
   if (!input || !input.trim()) return;
 
   input = input.trim();
@@ -372,6 +582,8 @@ function navigateTo(input) {
 
   const tab = tabs.find(t => t.id === activeTabId);
   if (!tab) return;
+  if (internalPage === 'history') historyPageTabIds.add(activeTabId);
+  else historyPageTabIds.delete(activeTabId);
 
   document.getElementById('new-tab-page').classList.add('hidden');
 
@@ -662,7 +874,28 @@ function showBookmarksManager() {
 }
 
 // ===== History =====
+function isHistoryWebUrl(url) {
+  if (typeof url !== 'string') return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function isHistoryPageUrl(url) {
+  if (typeof url !== 'string' || !url.startsWith('data:text/html;charset=utf-8,')) return false;
+  try {
+    const html = decodeURIComponent(url.slice(url.indexOf(',') + 1));
+    return html.includes('Tarayıcı Geçmişi') && html.includes('Geçmişi temizle');
+  } catch {
+    return false;
+  }
+}
+
 function addToHistory(url, title) {
+  if (!isHistoryWebUrl(url)) return;
   history.unshift({
     url,
     title: title || url,
@@ -674,13 +907,13 @@ function addToHistory(url, title) {
 }
 
 function updateHistoryTitle(url, title) {
+  if (!isHistoryWebUrl(url)) return;
   const entry = history.find(h => h.url === url);
   if (entry) entry.title = title;
   localStorage.setItem('browsingHistory', JSON.stringify(history));
 }
 
-function showHistory() {
-  closeMenu();
+function getHistoryPageUrl() {
   let content = '<h2>Tarayıcı Geçmişi</h2><ul>';
   history.slice(0, 100).forEach(h => {
     const date = new Date(h.visitedAt).toLocaleString('tr-TR');
@@ -689,17 +922,40 @@ function showHistory() {
     content += `<li>${url ? `<a href="${escapeHtml(url)}">${title}</a>` : `<span>${title}</span>`}<span class="date">${escapeHtml(date)}</span></li>`;
   });
   content += '</ul>';
+  if (!history.length) content = '<h2>Tarayıcı Geçmişi</h2><p class="empty">Henüz kayıtlı geçmiş yok.</p>';
 
   const html = `<html><head><meta charset="utf-8"><style>
       body { font-family: Inter, sans-serif; background: #0f0f1a; color: #e8e8f0; padding: 40px; max-width: 800px; margin: 0 auto; }
-      h2 { color: #6c63ff; margin-bottom: 20px; font-size: 24px; }
+      .heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; }
+      h2 { color: #6c63ff; margin: 0; font-size: 24px; }
       ul { list-style: none; padding: 0; }
       li { padding: 12px 16px; border-bottom: 1px solid rgba(108,99,255,0.15); display: flex; justify-content: space-between; align-items: center; }
       a { color: #a855f7; text-decoration: none; flex: 1; }
       a:hover { text-decoration: underline; }
       .date { color: #6b7280; font-size: 12px; flex-shrink: 0; margin-left: 16px; }
-    </style></head><body>${content}</body></html>`;
-  navigateTo(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+      .clear { color:#fff; background:#d94b61; border:0; border-radius:8px; padding:9px 13px; font-size:12px; cursor:pointer; text-decoration:none; }
+      .empty { color:#9ca3af; padding:20px 0; }
+    </style></head><body><div class="heading">${content.startsWith('<h2>') ? content.slice(0, content.indexOf('</h2>') + 5) : ''}<a class="clear" href="about:blank#clear-history">Geçmişi temizle</a></div>${content.startsWith('<h2>') ? content.slice(content.indexOf('</h2>') + 5) : content}</body></html>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
+function showHistory() {
+  closeMenu();
+  navigateTo(getHistoryPageUrl(), 'history');
+}
+
+function clearBrowsingHistory(refreshHistoryTabs = true) {
+  if (!confirm('Tarayıcı geçmişini tamamen silmek istiyor musun?')) return;
+  history = [];
+  localStorage.setItem('browsingHistory', '[]');
+  if (refreshHistoryTabs) {
+    for (const tabId of historyPageTabIds) {
+      const webview = document.querySelector(`webview[data-tab="${tabId}"]`);
+      if (webview) webview.loadURL(getHistoryPageUrl()).catch(() => {});
+    }
+  }
+  closeMenu();
+  setStatusText('Tarayıcı geçmişi temizlendi');
 }
 
 // ===== Developer Tools =====
@@ -1030,6 +1286,9 @@ document.addEventListener('click', (e) => {
   }
   if (!e.target.closest('#extensions-dropdown') && !e.target.closest('#extensions-btn')) {
     closeExtensionsDropdown();
+  }
+  if (!e.target.closest('#audio-boost-container')) {
+    closeAudioBoostPanel();
   }
   if (!e.target.closest('#extension-popup-container') && !e.target.closest('.ext-toolbar-icon') && !e.target.closest('.btn-popup-open') && !e.target.closest('.ext-dropdown-item')) {
     closeExtensionPopup();
@@ -1606,6 +1865,7 @@ document.addEventListener('keydown', (e) => {
     closeAdultProtectionSettings();
     closeExtensionPopup();
     closeMenu();
+    closeAudioBoostPanel();
   }
 });
 
@@ -1618,6 +1878,7 @@ urlIn.addEventListener('focus', () => {
 // ===== Initialize =====
 function init() {
   renderBookmarks();
+  syncAudioBoostControls();
   updateNtpClock();
   setInterval(updateNtpClock, 60_000);
   createNewTab();
