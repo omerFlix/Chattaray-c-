@@ -1118,6 +1118,19 @@ body {
   background: var(--bg-secondary);
 }
 
+#extension-popup-webview {
+  display: block;
+  width: 100%;
+  height: 520px;
+  min-height: 260px;
+  border: none;
+  background: var(--bg-secondary);
+}
+
+#extension-popup-webview.hidden {
+  display: none !important;
+}
+
 /* ===== Generic Modal Overlay & Card ===== */
 .modal-overlay {
   position: fixed;

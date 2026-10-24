@@ -1010,32 +1010,61 @@ async function deleteExtension(extId) {
 }
 
 // ===== EXTENSION POPUP FLYOUT =====
+function popupUsesParentMessaging(ext, html) {
+  if (!ext || !html) return false;
+
+  let scriptText = html;
+  const extensionRoot = path.resolve(ext.path);
+  const scriptSrcPattern = /<script\b[^>]*\bsrc\s*=\s*(["'])(.*?)\1/gi;
+  for (const match of html.matchAll(scriptSrcPattern)) {
+    const source = match[2].split(/[?#]/, 1)[0];
+    if (!source || /^(?:[a-z]+:)?\/\//i.test(source) || source.startsWith('data:')) continue;
+
+    try {
+      const scriptPath = path.resolve(extensionRoot, decodeURIComponent(source));
+      const relativePath = path.relative(extensionRoot, scriptPath);
+      if (relativePath.startsWith('..') || path.isAbsolute(relativePath) || !fs.existsSync(scriptPath)) continue;
+      scriptText += `\n${fs.readFileSync(scriptPath, 'utf-8')}`;
+    } catch {}
+  }
+
+  return /(?:window\s*\.\s*)?parent\s*\.\s*postMessage\s*\(/.test(scriptText);
+}
+
 function openExtensionPopup(extId) {
   closeExtensionsDropdown();
   const container = document.getElementById('extension-popup-container');
   const frame = document.getElementById('extension-popup-frame');
+  const nativeFrame = document.getElementById('extension-popup-webview');
   const title = document.getElementById('extension-popup-title');
 
   const popupInfo = extensionManager.getPopupContent(extId);
   if (!popupInfo) return;
 
   const ext = extensionManager.extensions.get(extId);
+  const nativeInfo = nativeExtensionUrls.get(extId);
   activePopupExtensionId = extId;
   title.textContent = ext ? (ext.manifest.name || ext.id) : 'Eklenti';
+  frame.src = 'about:blank';
+  frame.classList.add('hidden');
+  nativeFrame.src = 'about:blank';
+  nativeFrame.classList.add('hidden');
 
   if (ext && ext.popupFile) {
-    const nativeInfo = nativeExtensionUrls.get(extId);
-    if (nativeInfo && nativeInfo.url) {
+    if (nativeInfo && nativeInfo.url && !popupUsesParentMessaging(ext, popupInfo.html)) {
       const popupUrl = new URL(ext.popupFile, nativeInfo.url.endsWith('/') ? nativeInfo.url : `${nativeInfo.url}/`);
       popupUrl.searchParams.set('enabled', String(!!ext.enabled));
-      frame.src = popupUrl.href;
+      nativeFrame.classList.remove('hidden');
+      nativeFrame.src = popupUrl.href;
     } else {
       const popupUrl = pathToFileURL(path.join(ext.path, ext.popupFile));
       popupUrl.searchParams.set('enabled', String(!!ext.enabled));
+      frame.classList.remove('hidden');
       frame.src = popupUrl.href;
     }
   } else {
     const encodedHtml = encodeURIComponent(popupInfo.html);
+    frame.classList.remove('hidden');
     frame.src = `data:text/html;charset=utf-8,${encodedHtml}`;
   }
 
@@ -1045,8 +1074,13 @@ function openExtensionPopup(extId) {
 function closeExtensionPopup() {
   const container = document.getElementById('extension-popup-container');
   const frame = document.getElementById('extension-popup-frame');
+  const nativeFrame = document.getElementById('extension-popup-webview');
   if (container) container.classList.add('hidden');
   if (frame) frame.src = 'about:blank';
+  if (nativeFrame) {
+    nativeFrame.src = 'about:blank';
+    nativeFrame.classList.add('hidden');
+  }
   activePopupExtensionId = null;
 }
 

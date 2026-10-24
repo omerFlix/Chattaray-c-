@@ -169,6 +169,8 @@
       <button class="popup-close-btn" onclick="closeExtensionPopup()"><i class="fas fa-xmark"></i></button>
     </div>
     <iframe id="extension-popup-frame" src="about:blank"></iframe>
+    <webview id="extension-popup-webview" src="about:blank" class="hidden"
+      webpreferences="nodeIntegration=no,contextIsolation=yes"></webview>
   </div>
 
   <!-- ==================== EKLENTİLER MODALI ==================== -->
