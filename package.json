@@ -1,6 +1,6 @@
 {
   "name": "chat-tarayici",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "ChatTarayıcı - Modern Web Tarayıcısı",
   "main": "main.js",
   "author": "omerFlix",
@@ -29,6 +29,7 @@
       ]
     },
     "nsis": {
+      "include": "build/installer.nsh",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,

@@ -760,14 +760,50 @@ function sendUpdaterStatus(message, isError = false) {
 
 function startUpdateInstaller(installerPath) {
   return new Promise((resolve, reject) => {
-    const installer = spawn(installerPath, [], {
-      detached: true,
-      stdio: 'ignore'
-    });
-    installer.once('error', reject);
-    installer.once('spawn', () => {
-      installer.unref();
-      setTimeout(() => app.quit(), 800);
+    if (process.platform !== 'win32') {
+      const installer = spawn(installerPath, [], { detached: true, stdio: 'ignore' });
+      installer.once('error', reject);
+      installer.once('spawn', () => {
+        installer.unref();
+        setTimeout(() => app.quit(), 800);
+        resolve();
+      });
+      return;
+    }
+
+    const quotePowerShell = value => `'${String(value).replace(/'/g, "''")}'`;
+    const executablePath = process.execPath;
+    const installDirectory = `${path.dirname(executablePath)}${path.sep}`;
+    const script = [
+      `$mainPid = ${process.pid}`,
+      `$appExecutable = ${quotePowerShell(executablePath)}`,
+      `$installDirectory = ${quotePowerShell(installDirectory)}`,
+      `$installer = ${quotePowerShell(installerPath)}`,
+      '$deadline = [DateTime]::UtcNow.AddSeconds(20)',
+      'while ($true) {',
+      '  $mainProcess = Get-CimInstance -ClassName Win32_Process -Filter "ProcessId = $mainPid" -ErrorAction SilentlyContinue',
+      '  if (-not $mainProcess -or -not [string]::Equals($mainProcess.ExecutablePath, $appExecutable, [StringComparison]::OrdinalIgnoreCase)) { break }',
+      '  if ([DateTime]::UtcNow -ge $deadline) { Stop-Process -Id $mainPid -Force -ErrorAction SilentlyContinue; break }',
+      '  Start-Sleep -Milliseconds 200',
+      '}',
+      'for ($attempt = 0; $attempt -lt 20; $attempt++) {',
+      '  $appProcesses = @(Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($installDirectory, [StringComparison]::OrdinalIgnoreCase) })',
+      '  if ($appProcesses.Count -eq 0) { break }',
+      '  foreach ($appProcess in $appProcesses) { Stop-Process -Id $appProcess.ProcessId -Force -ErrorAction SilentlyContinue }',
+      '  Start-Sleep -Milliseconds 250',
+      '}',
+      'Start-Process -FilePath $installer'
+    ].join('\n');
+    const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
+    const updater = spawn('powershell.exe', [
+      '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
+      '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodedScript
+    ], { detached: true, stdio: 'ignore', windowsHide: true });
+
+    updater.once('error', reject);
+    updater.once('spawn', () => {
+      updater.unref();
+      setTimeout(() => app.quit(), 0);
       resolve();
     });
   });
