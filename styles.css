@@ -846,6 +846,148 @@ body {
   color: #a89aff;
 }
 
+#ntp-recent-section {
+  max-width: 760px;
+  margin: 30px auto 0;
+}
+
+.ntp-recent-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.ntp-recent-heading h2 {
+  color: #e6e5f5;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ntp-history-link {
+  padding: 5px 8px;
+  color: #aaa2e7;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.ntp-history-link:hover {
+  color: #eeeaff;
+  background: rgba(108, 99, 255, .11);
+  border-color: rgba(148, 137, 255, .18);
+}
+
+.ntp-history-link i {
+  margin-left: 4px;
+  transition: transform var(--transition-fast);
+}
+
+.ntp-history-link:hover i { transform: translateX(3px); }
+
+.ntp-recent-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ntp-recent-card {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 12px;
+  text-align: left;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: rgba(24, 24, 40, .5);
+  border: 1px solid rgba(255, 255, 255, .055);
+  border-radius: 11px;
+  cursor: pointer;
+  transition: transform var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+  animation: cardArrive .28s ease both;
+}
+
+.ntp-recent-card:hover {
+  transform: translateY(-2px);
+  background: rgba(40, 39, 66, .76);
+  border-color: rgba(148, 137, 255, .24);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .16);
+}
+
+.ntp-recent-favicon {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  display: grid;
+  place-items: center;
+  color: hsl(var(--site-hue, 255) 88% 88%);
+  background: hsl(var(--site-hue, 255) 48% 24%);
+  border: 1px solid hsl(var(--site-hue, 255) 50% 37% / .55);
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.ntp-recent-copy {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ntp-recent-copy strong,
+.ntp-recent-copy span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ntp-recent-copy strong {
+  color: #e8e7f5;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ntp-recent-copy span {
+  color: #85849b;
+  font-size: 10px;
+}
+
+.ntp-recent-open {
+  color: #77758e;
+  font-size: 10px;
+  transition: color var(--transition-fast), transform var(--transition-fast);
+}
+
+.ntp-recent-card:hover .ntp-recent-open {
+  color: #c1b7ff;
+  transform: translate(2px, -2px);
+}
+
+.ntp-recent-empty {
+  padding: 13px 15px;
+  color: #818197;
+  background: rgba(24, 24, 40, .32);
+  border: 1px dashed rgba(148, 137, 255, .14);
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+.shortcut-item:focus-visible,
+.ntp-recent-card:focus-visible,
+.ntp-history-link:focus-visible {
+  outline: 2px solid rgba(168, 85, 247, .85);
+  outline-offset: 3px;
+}
+
 /* ===== Loading Bar ===== */
 #loading-bar {
   position: absolute;
@@ -989,6 +1131,10 @@ body {
   #ntp-shortcuts {
     grid-template-columns: repeat(3, 1fr);
     gap: 8px;
+  }
+
+  .ntp-recent-grid {
+    grid-template-columns: 1fr;
   }
 
   .shortcut-icon {

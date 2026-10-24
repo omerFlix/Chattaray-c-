@@ -363,55 +363,66 @@
           <span class="ntp-section-note"><i class="fas fa-arrow-pointer"></i> Açmak için seç</span>
         </div>
         <div id="ntp-shortcuts">
-          <div class="shortcut-item" onclick="navigateTo('https://www.google.com')">
+          <div class="shortcut-item" role="button" tabindex="0" aria-label="Google'ı aç" onclick="navigateTo('https://www.google.com')">
             <div class="shortcut-icon" style="background: linear-gradient(135deg, #4285f4, #34a853);">
               <i class="fab fa-google"></i>
             </div>
             <span>Google</span>
           </div>
-          <div class="shortcut-item" onclick="navigateTo('https://www.youtube.com')">
+          <div class="shortcut-item" role="button" tabindex="0" aria-label="YouTube'u aç" onclick="navigateTo('https://www.youtube.com')">
             <div class="shortcut-icon" style="background: linear-gradient(135deg, #ff0000, #cc0000);">
               <i class="fab fa-youtube"></i>
             </div>
             <span>YouTube</span>
           </div>
-          <div class="shortcut-item" onclick="navigateTo('https://twitter.com')">
-            <div class="shortcut-icon" style="background: linear-gradient(135deg, #1da1f2, #0d8ecf);">
-              <i class="fab fa-twitter"></i>
+          <div class="shortcut-item" role="button" tabindex="0" aria-label="X'i aç" onclick="navigateTo('https://x.com')">
+            <div class="shortcut-icon" style="background: linear-gradient(135deg, #292929, #000);">
+              <i class="fab fa-x-twitter"></i>
             </div>
-            <span>Twitter</span>
+            <span>X</span>
           </div>
-          <div class="shortcut-item" onclick="navigateTo('https://www.instagram.com')">
+          <div class="shortcut-item" role="button" tabindex="0" aria-label="Instagram'ı aç" onclick="navigateTo('https://www.instagram.com')">
             <div class="shortcut-icon" style="background: linear-gradient(135deg, #e1306c, #fd1d1d, #f77737);">
               <i class="fab fa-instagram"></i>
             </div>
             <span>Instagram</span>
           </div>
-          <div class="shortcut-item" onclick="navigateTo('https://github.com')">
+          <div class="shortcut-item" role="button" tabindex="0" aria-label="GitHub'ı aç" onclick="navigateTo('https://github.com')">
             <div class="shortcut-icon" style="background: linear-gradient(135deg, #333, #6e5494);">
               <i class="fab fa-github"></i>
             </div>
             <span>GitHub</span>
           </div>
-          <div class="shortcut-item" onclick="navigateTo('https://www.wikipedia.org')">
+          <div class="shortcut-item" role="button" tabindex="0" aria-label="Wikipedia'yı aç" onclick="navigateTo('https://www.wikipedia.org')">
             <div class="shortcut-icon" style="background: linear-gradient(135deg, #636466, #3a3a3c);">
               <i class="fab fa-wikipedia-w"></i>
             </div>
             <span>Wikipedia</span>
           </div>
-          <div class="shortcut-item" onclick="navigateTo('https://www.reddit.com')">
+          <div class="shortcut-item" role="button" tabindex="0" aria-label="Reddit'i aç" onclick="navigateTo('https://www.reddit.com')">
             <div class="shortcut-icon" style="background: linear-gradient(135deg, #ff4500, #ff6834);">
               <i class="fab fa-reddit-alien"></i>
             </div>
             <span>Reddit</span>
           </div>
-          <div class="shortcut-item" onclick="navigateTo('https://www.linkedin.com')">
+          <div class="shortcut-item" role="button" tabindex="0" aria-label="LinkedIn'i aç" onclick="navigateTo('https://www.linkedin.com')">
             <div class="shortcut-icon" style="background: linear-gradient(135deg, #0077b5, #005582);">
               <i class="fab fa-linkedin-in"></i>
             </div>
             <span>LinkedIn</span>
           </div>
         </div>
+        <section id="ntp-recent-section" aria-labelledby="ntp-recent-heading">
+          <div class="ntp-recent-heading">
+            <div>
+              <span class="ntp-eyebrow">GERİ DÖN</span>
+              <h2 id="ntp-recent-heading">Son ziyaretler</h2>
+            </div>
+            <button class="ntp-history-link" type="button" onclick="showHistory()">Tüm geçmiş <i class="fas fa-arrow-right"></i></button>
+          </div>
+          <div id="ntp-recent-grid" class="ntp-recent-grid"></div>
+          <p id="ntp-recent-empty" class="ntp-recent-empty">Gezdiğin siteler burada görünecek.</p>
+        </section>
         <div class="ntp-footer"><i class="fas fa-wand-magic-sparkles"></i> Arama yap, keşfet, devam et.</div>
       </div>
     </div>

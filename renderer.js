@@ -628,6 +628,63 @@ function updateNtpClock() {
   }
 }
 
+function renderNtpRecents() {
+  const grid = document.getElementById('ntp-recent-grid');
+  const empty = document.getElementById('ntp-recent-empty');
+  if (!grid || !empty) return;
+
+  const recentSites = [];
+  const seenHosts = new Set();
+  const newestFirst = [...history].sort((a, b) => (Number(b.visitedAt) || 0) - (Number(a.visitedAt) || 0));
+  for (const entry of newestFirst) {
+    const safeUrl = safeWebUrl(entry.url);
+    if (!safeUrl) continue;
+    let parsed;
+    try { parsed = new URL(safeUrl); } catch { continue; }
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+    if (seenHosts.has(host)) continue;
+    seenHosts.add(host);
+    recentSites.push({ url: safeUrl, host, title: entry.title || host });
+    if (recentSites.length >= 4) break;
+  }
+
+  grid.replaceChildren();
+  for (const site of recentSites) {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'ntp-recent-card';
+    card.setAttribute('aria-label', `${site.title} — ${site.host} adresini aç`);
+    card.onclick = () => navigateTo(site.url);
+
+    let hue = 0;
+    for (const char of site.host) hue = (hue * 31 + char.charCodeAt(0)) % 360;
+    card.style.setProperty('--site-hue', String(hue));
+
+    const favicon = document.createElement('span');
+    favicon.className = 'ntp-recent-favicon';
+    favicon.setAttribute('aria-hidden', 'true');
+    favicon.textContent = site.host.charAt(0);
+
+    const copy = document.createElement('span');
+    copy.className = 'ntp-recent-copy';
+    const title = document.createElement('strong');
+    title.textContent = site.title;
+    const host = document.createElement('span');
+    host.textContent = site.host;
+    copy.append(title, host);
+
+    const openIcon = document.createElement('i');
+    openIcon.className = 'fas fa-arrow-up-right-from-square ntp-recent-open';
+    openIcon.setAttribute('aria-hidden', 'true');
+    card.append(favicon, copy, openIcon);
+    grid.appendChild(card);
+  }
+
+  const hasRecentSites = recentSites.length > 0;
+  grid.classList.toggle('hidden', !hasRecentSites);
+  empty.classList.toggle('hidden', hasRecentSites);
+}
+
 function goBack() {
   const webview = getActiveWebview();
   if (webview && webview.canGoBack()) {
@@ -905,6 +962,7 @@ function addToHistory(url, title) {
 
   if (history.length > 500) history = history.slice(0, 500);
   localStorage.setItem('browsingHistory', JSON.stringify(history));
+  renderNtpRecents();
 }
 
 function updateHistoryTitle(url, title) {
@@ -912,6 +970,7 @@ function updateHistoryTitle(url, title) {
   const entry = history.find(h => h.url === url);
   if (entry) entry.title = title;
   localStorage.setItem('browsingHistory', JSON.stringify(history));
+  renderNtpRecents();
 }
 
 function getHistoryPageUrl() {
@@ -949,6 +1008,7 @@ function clearBrowsingHistory(refreshHistoryTabs = true) {
   if (!confirm('Tarayıcı geçmişini tamamen silmek istiyor musun?')) return;
   history = [];
   localStorage.setItem('browsingHistory', '[]');
+  renderNtpRecents();
   if (refreshHistoryTabs) {
     for (const tabId of historyPageTabIds) {
       const webview = document.querySelector(`webview[data-tab="${tabId}"]`);
@@ -2160,6 +2220,13 @@ function isSafeNavigationUrl(value) {
 
 // ===== Keyboard Shortcuts =====
 document.addEventListener('keydown', (e) => {
+  const focusedShortcut = e.target?.closest?.('.shortcut-item');
+  if (focusedShortcut && (e.key === 'Enter' || e.key === ' ')) {
+    e.preventDefault();
+    focusedShortcut.click();
+    return;
+  }
+
   // Ctrl+T - New tab
   if (e.ctrlKey && e.key === 't') {
     e.preventDefault();
@@ -2273,6 +2340,7 @@ function init() {
   renderBookmarks();
   syncAudioBoostControls();
   updateNtpClock();
+  renderNtpRecents();
   setInterval(updateNtpClock, 60_000);
   createNewTab();
 
