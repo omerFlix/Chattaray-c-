@@ -1,6 +1,6 @@
 {
   "name": "chat-tarayici",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "ChatTarayıcı - Modern Web Tarayıcısı",
   "main": "main.js",
   "author": "omerFlix",
@@ -44,6 +44,7 @@
       "updater.js",
       "update-config.json",
       "package.json",
+      "data/**/*",
       "extensions/**/*"
     ]
   },

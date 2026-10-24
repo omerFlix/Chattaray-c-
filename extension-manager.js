@@ -10,6 +10,22 @@ function escapeHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
+function resolveManifestMessage(ext, value) {
+  if (typeof value !== 'string') return '';
+  const match = value.match(/^__MSG_(.+)__$/i);
+  if (!match) return value;
+
+  for (const locale of [ext.manifest.default_locale, 'en'].filter(Boolean)) {
+    if (!/^[a-z0-9_-]+$/i.test(locale)) continue;
+    try {
+      const messages = JSON.parse(fs.readFileSync(path.join(ext.path, '_locales', locale, 'messages.json'), 'utf8'));
+      const message = messages[match[1].toLowerCase()];
+      if (message && typeof message.message === 'string') return message.message;
+    } catch {}
+  }
+  return value;
+}
+
 class ExtensionManager {
   constructor(extensionsDir) {
     this.extensionsDir = extensionsDir;
@@ -163,9 +179,9 @@ class ExtensionManager {
   getExtensionList() {
     return Array.from(this.extensions.values()).map(ext => ({
       id: ext.id,
-      name: ext.manifest.name || ext.id,
+      name: resolveManifestMessage(ext, ext.manifest.name || ext.id),
       version: ext.manifest.version || '1.0.0',
-      description: ext.manifest.description || '',
+      description: resolveManifestMessage(ext, ext.manifest.description || ''),
       author: ext.manifest.author || 'Bilinmiyor',
       icon: ext.iconFile ? path.join(ext.path, ext.iconFile).replace(/\\/g, '/') : null,
       enabled: ext.enabled,
@@ -221,14 +237,16 @@ class ExtensionManager {
     return true;
   }
 
-  installFromFolder(sourcePath) {
+  installFromFolder(sourcePath, preferredId = null) {
     const manifestPath = path.join(sourcePath, 'manifest.json');
     if (!fs.existsSync(manifestPath)) {
       throw new Error('manifest.json bulunamadı! Lütfen manifest.json içeren geçerli bir eklenti klasörü seçin.');
     }
 
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-    const extId = (manifest.id || manifest.name || path.basename(sourcePath)).toLowerCase().replace(/[^a-z0-9-_]/g, '-');
+    const requestedId = preferredId || manifest.id || manifest.name || path.basename(sourcePath);
+    const extId = String(requestedId).toLowerCase().replace(/[^a-z0-9-_]/g, '-');
+    if (!extId) throw new Error('Eklenti kimliği geçersiz.');
     const targetPath = path.join(this.extensionsDir, extId);
 
     // Avoid copying a folder onto itself when reinstalling from the extensions directory.
@@ -367,8 +385,8 @@ class ExtensionManager {
     }
 
     // Default beautiful extension dashboard if no popup.html exists
-    const name = ext.manifest.name || ext.id;
-    const desc = ext.manifest.description || 'Bu eklenti web siteleri üzerinde çalışır.';
+    const name = resolveManifestMessage(ext, ext.manifest.name || ext.id);
+    const desc = resolveManifestMessage(ext, ext.manifest.description || 'Bu eklenti web siteleri üzerinde çalışır.');
     const ver = ext.manifest.version || '1.0.0';
     const safeName = escapeHtml(name);
     const safeDesc = escapeHtml(desc);

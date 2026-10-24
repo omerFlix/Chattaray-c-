@@ -25,6 +25,8 @@ const nativeExtensionUrls = new Map(extensionRuntimeInfo.loaded || []);
 const extensionRuntimeErrors = new Map(extensionRuntimeInfo.errors || []);
 const pendingNativeExtensionLoads = new Set();
 let activePopupExtensionId = null;
+let adultProtectionState = ipcRenderer.sendSync('adult-protection-get') || { enabled: true, domainCount: 0, updatedAt: null };
+const blockedPageByWebview = new WeakMap();
 
 const updater = new CentralUpdater({
   appRoot: __dirname,
@@ -35,6 +37,22 @@ ipcRenderer.on('github-update-status', (_event, status) => {
   if (!status || !status.message) return;
   setUpdateStatus(status.message, Boolean(status.isError));
   setStatusText(status.message);
+});
+
+ipcRenderer.on('adult-protection-status', (_event, status) => {
+  adultProtectionState = status || adultProtectionState;
+  renderAdultProtectionSettings();
+});
+
+ipcRenderer.on('adult-site-blocked', (_event, details) => {
+  if (!details || !details.url || typeof details.webContentsId !== 'number') return;
+  document.querySelectorAll('#webview-container webview').forEach((webview) => {
+    try {
+      if (webview.getWebContentsId() === details.webContentsId) {
+        showAdultBlockedPage(webview, details.url);
+      }
+    } catch {}
+  });
 });
 
 // ===== Window Controls =====
@@ -134,6 +152,15 @@ function createWebview(tabId, url, incognito = false) {
   });
 
   webview.addEventListener('did-navigate', (e) => {
+    const blockedPage = blockedPageByWebview.get(webview);
+    if (blockedPage && e.url === blockedPage.pageUrl) {
+      updateTabInfo(tabId, { url: blockedPage.url, title: 'Erişim engellendi' });
+      if (tabId === activeTabId) {
+        updateUrlBar(blockedPage.url);
+        updateNavButtons(tabId);
+      }
+      return;
+    }
     updateTabInfo(tabId, { url: e.url });
     if (tabId === activeTabId) {
       updateUrlBar(e.url);
@@ -353,6 +380,7 @@ function navigateTo(input) {
     webview = createWebview(activeTabId, url, tab.incognito);
     webview.classList.add('active');
   } else {
+    blockedPageByWebview.delete(webview);
     webview.loadURL(url);
   }
 
@@ -702,12 +730,239 @@ function showSettings() {
       <h2>⚙️ Ayarlar</h2>
       <div class="setting"><label>Sürüm</label><p>ChatTarayıcı v${APP_VERSION}</p></div>
       <div class="setting"><label>Motor</label><p>Chromium (Electron)</p></div>
-      <div class="setting"><label>Eklenti Desteği</label><p>Aktif ✅ (Chrome Manifest Uyumlu)</p></div>
+      <div class="setting"><label>Eklenti Desteği</label><p>Chrome eklentileri kısmen desteklenir; Chrome Web Store'daki her eklenti çalışmayabilir.</p></div>
       <div class="setting"><label>Güncelleme</label><p>Uygulama açılışta GitHub'dan yeni sürümü kontrol eder ve varsa kurulumunu başlatır.</p></div>
       <div class="setting"><label>Reklam Engelleyici</label><p>Aktif ✅</p></div>
+      <div class="setting"><label>Yetişkin İçerik Koruması</label><p>${adultProtectionState.enabled ? 'Açık ✅' : 'Kapalı'} · Ayarlar menüsünden yönetebilirsin.</p></div>
       <div class="version">ChatTarayıcı — Modern, hızlı ve tam donanımlı tarayıcınız</div>
     </body></html>
   `);
+}
+
+function showAdultBlockedPage(webview, blockedUrl) {
+  let hostname = blockedUrl;
+  try { hostname = new URL(blockedUrl).hostname; } catch {}
+  const safeHost = escapeHtml(hostname);
+  const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Erişim engellendi</title><style>
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0b1020;color:#e8eaf6;font:16px Inter,Segoe UI,sans-serif;padding:24px}.card{max-width:560px;padding:38px;border:1px solid #29314c;border-radius:20px;background:#141b2e;box-shadow:0 24px 80px #0008;text-align:center}.icon{font-size:44px;color:#a78bfa}.tag{display:inline-block;margin:20px 0 8px;padding:6px 11px;border-radius:999px;background:#30234a;color:#d8b4fe;font-size:12px;font-weight:700;letter-spacing:.06em}h1{font-size:25px;margin:8px 0 12px}p{color:#aab2ca;line-height:1.65;margin:10px 0}.domain{color:#f1f3ff;overflow-wrap:anywhere;font-weight:600}.hint{font-size:13px;margin-top:24px}
+  </style></head><body><main class="card"><div class="icon">🛡️</div><div class="tag">AİLE KORUMASI</div><h1>Bu site engellendi</h1><p class="domain">${safeHost}</p><p>Bu adres, yetişkin içerik koruma listesindeki alan adları arasında.</p><p class="hint">Bu korumayı Ayarlar menüsündeki “Güvenlik ve +18 Koruması” bölümünden yönetebilirsin.</p></main></body></html>`;
+  const pageUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+  blockedPageByWebview.set(webview, { url: blockedUrl, pageUrl });
+  webview.loadURL(pageUrl);
+  setStatusText(`+18 koruması engelledi: ${hostname}`);
+}
+
+function openAdultProtectionSettings() {
+  closeMenu();
+  const modal = document.getElementById('security-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  renderAdultProtectionSettings();
+}
+
+function closeAdultProtectionSettings() {
+  const modal = document.getElementById('security-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function renderAdultProtectionSettings() {
+  const checkbox = document.getElementById('adult-protection-toggle');
+  const status = document.getElementById('adult-protection-status-text');
+  const updated = document.getElementById('adult-protection-updated');
+  if (checkbox) checkbox.checked = Boolean(adultProtectionState.enabled);
+  if (status) {
+    const count = Number(adultProtectionState.domainCount) || 0;
+    status.textContent = adultProtectionState.enabled
+      ? `Açık · ${count.toLocaleString('tr-TR')} alan adı listede`
+      : 'Kapalı';
+  }
+  if (updated) {
+    updated.textContent = adultProtectionState.updatedAt
+      ? `Liste güncellemesi: ${new Date(adultProtectionState.updatedAt).toLocaleString('tr-TR')}`
+      : 'Liste henüz yükleniyor.';
+  }
+}
+
+async function setAdultProtectionEnabled(enabled) {
+  const checkbox = document.getElementById('adult-protection-toggle');
+  if (checkbox) checkbox.disabled = true;
+  try {
+    adultProtectionState = await ipcRenderer.invoke('adult-protection-set', enabled);
+    renderAdultProtectionSettings();
+    setStatusText(enabled ? '+18 koruması açıldı' : '+18 koruması kapatıldı');
+  } catch (error) {
+    if (checkbox) checkbox.checked = !enabled;
+    alert(`Koruma ayarı kaydedilemedi: ${error.message}`);
+  } finally {
+    if (checkbox) checkbox.disabled = false;
+  }
+}
+
+const chromeStoreCatalog = [
+  {
+    name: 'uBlock Origin Lite',
+    publisher: 'Raymond Hill',
+    category: 'Gizlilik ve güvenlik',
+    description: 'Reklamları ve izleyicileri engellemeye yardımcı olan içerik engelleyici.',
+    icon: 'fa-shield-halved',
+    url: 'https://chromewebstore.google.com/detail/ublock-origin-lite/ddkjiahejlhfcafbddmgiahcphecmpfh'
+  },
+  {
+    name: 'Bitwarden',
+    publisher: 'Bitwarden Inc.',
+    category: 'Şifre yöneticisi',
+    description: 'Parolaları ve geçiş anahtarlarını yönetmek için açık kaynaklı şifre kasası.',
+    icon: 'fa-key',
+    url: 'https://chromewebstore.google.com/detail/bitwarden-password-manage/nngceckbapebfimnlniiiahkandclblb'
+  },
+  {
+    name: 'Google Translate',
+    publisher: 'Google',
+    category: 'Eğitim',
+    description: 'Seçilen metinleri tarayıcıdan çevirmeyi kolaylaştırır.',
+    icon: 'fa-language',
+    url: 'https://chromewebstore.google.com/detail/google-translate/aapbdbdomjkkjkaonfhkkikfgjllcleb'
+  },
+  {
+    name: 'SponsorBlock',
+    publisher: 'ajay.app',
+    category: 'YouTube',
+    description: 'YouTube videolarındaki toplulukça işaretlenmiş sponsorluk bölümlerini atlar.',
+    icon: 'fa-forward-step',
+    url: 'https://chromewebstore.google.com/detail/sponsorblock-for-youtube/mnjggcdmjocbbbhaepdhchncahnbgone'
+  }
+];
+
+function openExtensionStore() {
+  closeMenu();
+  closeExtensionsDropdown();
+  const modal = document.getElementById('extension-store-modal');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  renderExtensionStore();
+  document.getElementById('chrome-import-list').classList.add('hidden');
+}
+
+function closeExtensionStore() {
+  const modal = document.getElementById('extension-store-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function openChromeStoreListing(url) {
+  if (typeof url === 'string' && url.startsWith('https://chromewebstore.google.com/')) {
+    shell.openExternal(url).catch((error) => setStatusText(`Mağaza açılamadı: ${error.message}`));
+  }
+}
+
+function searchChromeStore() {
+  const input = document.getElementById('chrome-store-search');
+  const query = input ? input.value.trim() : '';
+  if (!query) return;
+  shell.openExternal(`https://chromewebstore.google.com/search/${encodeURIComponent(query)}`)
+    .catch((error) => setStatusText(`Chrome Web Store açılamadı: ${error.message}`));
+}
+
+async function showChromeImports() {
+  const section = document.getElementById('chrome-import-list');
+  if (!section) return;
+  section.classList.remove('hidden');
+  section.replaceChildren();
+  const loading = document.createElement('p');
+  loading.className = 'store-import-empty';
+  loading.textContent = 'Chrome profilleri taranıyor…';
+  section.appendChild(loading);
+
+  try {
+    extensionManager.scanExtensions();
+    const extensions = await ipcRenderer.invoke('extensions-chrome-list');
+    const importable = extensions.filter(extension => !extensionManager.extensions.has(extension.id));
+    section.replaceChildren();
+    const heading = document.createElement('h3');
+    heading.textContent = 'Chrome’da yüklü eklentiler';
+    section.appendChild(heading);
+    if (!importable.length) {
+      const empty = document.createElement('p');
+      empty.className = 'store-import-empty';
+      empty.textContent = extensions.length
+        ? 'Chrome’da görünen eklentiler zaten ChatTarayıcı’ya aktarılmış.'
+        : 'Chrome profili bulunamadı veya aktarılabilecek eklenti yok. Önce bir eklentiyi Chrome Web Store’dan Chrome’a kur.';
+      section.appendChild(empty);
+      return;
+    }
+
+    importable.forEach(extension => {
+      const row = document.createElement('div');
+      row.className = 'store-import-row';
+      const details = document.createElement('div');
+      const name = document.createElement('strong');
+      name.textContent = extension.name;
+      const meta = document.createElement('span');
+      meta.textContent = `v${extension.version} · ${extension.profile}${extension.enabled ? '' : ' · Chrome’da kapalı'}`;
+      details.append(name, meta);
+      const button = document.createElement('button');
+      button.className = 'btn-secondary';
+      button.textContent = 'Aktar';
+      button.onclick = () => importChromeExtension(extension);
+      row.append(details, button);
+      section.appendChild(row);
+    });
+  } catch (error) {
+    section.replaceChildren();
+    const message = document.createElement('p');
+    message.className = 'store-import-empty';
+    message.textContent = `Chrome eklentileri okunamadı: ${error.message}`;
+    section.appendChild(message);
+  }
+}
+
+async function importChromeExtension(extension) {
+  try {
+    const sourcePath = await ipcRenderer.invoke('extensions-chrome-path', extension.id);
+    if (!sourcePath) throw new Error('Chrome’daki eklenti klasörü bulunamadı. Chrome’u kapatıp tekrar dene.');
+    const extensionId = extensionManager.installFromFolder(sourcePath, extension.id);
+    const runtime = await loadNativeExtensionForUi(extensionId);
+    renderExtensionsList();
+    reloadOpenWebviews();
+    await showChromeImports();
+    if (runtime && runtime.ok) {
+      setStatusText(`“${extension.name}” Chrome’dan aktarıldı`);
+    } else {
+      alert(`“${extension.name}” aktarıldı. Ancak Electron bu eklentinin kullandığı Chrome API’lerini desteklemeyebilir.\n\n${runtime?.error || 'Eklenti temel modda kullanılabilir.'}`);
+    }
+  } catch (error) {
+    alert(`Chrome eklentisi aktarılamadı: ${error.message}`);
+  }
+}
+
+function renderExtensionStore() {
+  const grid = document.getElementById('extension-store-grid');
+  if (!grid) return;
+  grid.replaceChildren();
+
+  chromeStoreCatalog.forEach(extension => {
+    const card = document.createElement('article');
+    card.className = 'store-card';
+    const icon = document.createElement('div');
+    icon.className = 'store-card-icon';
+    icon.innerHTML = `<i class="fas ${extension.icon}"></i>`;
+    const category = document.createElement('span');
+    category.className = 'store-card-category';
+    category.textContent = extension.category;
+    const name = document.createElement('h3');
+    name.textContent = extension.name;
+    const publisher = document.createElement('p');
+    publisher.className = 'store-card-publisher';
+    publisher.textContent = extension.publisher;
+    const description = document.createElement('p');
+    description.className = 'store-card-description';
+    description.textContent = extension.description;
+    const button = document.createElement('button');
+    button.className = 'btn-secondary';
+    button.innerHTML = '<i class="fas fa-arrow-up-right-from-square"></i> Mağazada aç';
+    button.onclick = () => openChromeStoreListing(extension.url);
+    card.append(icon, category, name, publisher, description, button);
+    grid.appendChild(card);
+  });
 }
 
 // ===== Menu =====
@@ -1297,6 +1552,8 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     document.getElementById('extensions-modal').classList.add('hidden');
     document.getElementById('updates-modal').classList.add('hidden');
+    closeExtensionStore();
+    closeAdultProtectionSettings();
     closeExtensionPopup();
     closeMenu();
   }

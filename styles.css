@@ -1216,6 +1216,7 @@ body {
 .modal-actions-bar {
   padding: 12px 20px;
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   background: rgba(22, 33, 62, 0.5);
   border-bottom: 1px solid var(--border-color);
@@ -1698,4 +1699,230 @@ input:checked + .slider:before {
   color: var(--text-muted);
   cursor: pointer;
   font-size: 14px;
+}
+
+/* ===== Extension Store ===== */
+.extension-store-modal-card {
+  width: 920px;
+  max-width: 96vw;
+}
+
+.store-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 14px 20px;
+  color: var(--text-secondary);
+  background: rgba(108, 99, 255, 0.08);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.store-notice strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.store-search-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.store-search-row input {
+  flex: 1 1 220px;
+  min-width: 180px;
+  padding: 9px 12px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  outline: none;
+}
+
+.store-search-row input:focus {
+  border-color: var(--accent-primary);
+}
+
+.extension-store-body {
+  padding: 18px 20px 22px;
+}
+
+.store-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.store-section-heading h2,
+.chrome-import-list h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.store-section-heading span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.extension-store-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+.store-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: 238px;
+  padding: 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.store-card-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 12px;
+  place-items: center;
+  color: white;
+  background: var(--accent-gradient);
+  border-radius: 11px;
+}
+
+.store-card-category {
+  color: var(--accent-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.store-card h3 {
+  margin: 6px 0 2px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.store-card-publisher {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.store-card-description {
+  flex: 1;
+  margin: 0 0 14px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.store-card .btn-secondary {
+  padding: 7px 10px;
+  font-size: 11px;
+}
+
+.chrome-import-list {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+.chrome-import-list h3 {
+  margin-bottom: 10px;
+}
+
+.store-import-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.store-import-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.store-import-row strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.store-import-row span,
+.store-import-empty {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+/* ===== Adult Content Protection ===== */
+.security-modal-card {
+  width: 560px;
+  max-width: 94vw;
+}
+
+.security-setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 4px 0 16px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.security-setting-row h2 {
+  margin: 0 0 6px;
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.security-setting-row p,
+.security-description,
+.security-updated {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.security-setting-row .switch {
+  flex: 0 0 44px;
+}
+
+.security-description {
+  margin-top: 16px;
+}
+
+.security-updated {
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+@media (max-width: 620px) {
+  .store-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .store-import-row {
+    align-items: flex-start;
+  }
 }

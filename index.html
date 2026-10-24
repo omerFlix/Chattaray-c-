@@ -114,6 +114,12 @@
     <div class="menu-item" onclick="toggleExtensionsDropdown()">
       <i class="fas fa-puzzle-piece"></i> Eklentiler (Extensions)
     </div>
+    <div class="menu-item" onclick="openExtensionStore()">
+      <i class="fas fa-store"></i> Eklenti Mağazası
+    </div>
+    <div class="menu-item" onclick="openAdultProtectionSettings()">
+      <i class="fas fa-shield-halved"></i> Güvenlik ve +18 Koruması
+    </div>
     <div class="menu-item" onclick="toggleUpdatesModal()">
       <i class="fas fa-cloud-arrow-down"></i> Güncellemeleri Denetle
     </div>
@@ -156,6 +162,9 @@
       <div class="menu-item" onclick="installExtensionFromFolder()">
         <i class="fas fa-folder-plus"></i> Klasörden Eklenti Yükle
       </div>
+      <div class="menu-item" onclick="openExtensionStore()">
+        <i class="fas fa-store"></i> Eklenti Mağazası
+      </div>
       <div class="menu-item" onclick="toggleExtensionsModal()">
         <i class="fas fa-sliders"></i> Eklentileri Yönet
       </div>
@@ -193,12 +202,63 @@
         <button class="btn-secondary" onclick="openExtensionsFolder()">
           <i class="fas fa-arrow-up-right-from-square"></i> Eklentiler Klasörü
         </button>
+        <button class="btn-secondary" onclick="openExtensionStore()">
+          <i class="fas fa-store"></i> Eklenti Mağazası
+        </button>
       </div>
 
       <div class="modal-body">
         <div id="extensions-list" class="extensions-container">
           <!-- Dynamically populated -->
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chrome Web Store discovery and import -->
+  <div id="extension-store-modal" class="modal-overlay hidden">
+    <div class="modal-card extension-store-modal-card">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fas fa-store"></i> Eklenti Mağazası</div>
+        <button class="modal-close-btn" onclick="closeExtensionStore()"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="store-notice">
+        <strong>Chrome Web Store’dan eklenti bul.</strong>
+        <span>Mağaza varsayılan tarayıcıda açılır. Chrome’da kurduktan sonra “Chrome’dan aktar” seçeneğini kullan. Electron .crx dosyalarını doğrudan kuramıyor; bazı Chrome eklentileri de uyumlu olmayabilir. Aktarılan kopya Chrome’dan otomatik güncellenmez ve Chrome’daki eklenti ayarlarını taşımayabilir.</span>
+      </div>
+      <div class="store-search-row">
+        <input id="chrome-store-search" type="text" placeholder="Chrome Web Store’da eklenti ara…" onkeydown="if(event.key==='Enter') searchChromeStore()">
+        <button class="btn-primary" onclick="searchChromeStore()"><i class="fas fa-magnifying-glass"></i> Mağazada ara</button>
+        <button class="btn-secondary" onclick="showChromeImports()"><i class="fab fa-chrome"></i> Chrome’dan aktar</button>
+      </div>
+      <div class="modal-body extension-store-body">
+        <div class="store-section-heading"><h2>Öne çıkanlar</h2><span>Resmî Chrome Web Store bağlantıları</span></div>
+        <div id="extension-store-grid" class="extension-store-grid"></div>
+        <div id="chrome-import-list" class="chrome-import-list hidden"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Adult content protection settings -->
+  <div id="security-modal" class="modal-overlay hidden">
+    <div class="modal-card security-modal-card">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fas fa-shield-halved"></i> Güvenlik ve +18 Koruması</div>
+        <button class="modal-close-btn" onclick="closeAdultProtectionSettings()"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="modal-body security-modal-body">
+        <div class="security-setting-row">
+          <div>
+            <h2>Yetişkin içerik koruması</h2>
+            <p id="adult-protection-status-text">Liste yükleniyor…</p>
+          </div>
+          <label class="switch" title="Yetişkin içerik korumasını aç veya kapat">
+            <input id="adult-protection-toggle" type="checkbox" onchange="setAdultProtectionEnabled(this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <p class="security-description">Bilinen yetişkin içerik alan adları hem ana sekmelerde hem gizli sekmelerde engellenir. Liste güncel bir topluluk kaynağından alınır; yeni açılan veya listede olmayan siteler yine görüntülenebilir.</p>
+        <p id="adult-protection-updated" class="security-updated">Liste yükleniyor…</p>
       </div>
     </div>
   </div>
