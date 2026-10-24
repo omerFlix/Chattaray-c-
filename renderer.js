@@ -800,38 +800,23 @@ async function setAdultProtectionEnabled(enabled) {
 
 const chromeStoreCatalog = [
   {
-    name: 'uBlock Origin Lite',
-    publisher: 'Raymond Hill',
-    category: 'Gizlilik ve güvenlik',
-    description: 'Reklamları ve izleyicileri engellemeye yardımcı olan içerik engelleyici.',
-    icon: 'fa-shield-halved',
-    url: 'https://chromewebstore.google.com/detail/ublock-origin-lite/ddkjiahejlhfcafbddmgiahcphecmpfh'
-  },
-  {
-    name: 'Bitwarden',
-    publisher: 'Bitwarden Inc.',
-    category: 'Şifre yöneticisi',
-    description: 'Parolaları ve geçiş anahtarlarını yönetmek için açık kaynaklı şifre kasası.',
-    icon: 'fa-key',
-    url: 'https://chromewebstore.google.com/detail/bitwarden-password-manage/nngceckbapebfimnlniiiahkandclblb'
-  },
-  {
+    id: 'aapbdbdomjkkjkaonfhkkikfgjllcleb',
     name: 'Google Translate',
     publisher: 'Google',
     category: 'Eğitim',
     description: 'Seçilen metinleri tarayıcıdan çevirmeyi kolaylaştırır.',
-    icon: 'fa-language',
-    url: 'https://chromewebstore.google.com/detail/google-translate/aapbdbdomjkkjkaonfhkkikfgjllcleb'
+    icon: 'fa-language'
   },
   {
+    id: 'mnjggcdmjocbbbhaepdhchncahnbgone',
     name: 'SponsorBlock',
     publisher: 'ajay.app',
     category: 'YouTube',
     description: 'YouTube videolarındaki toplulukça işaretlenmiş sponsorluk bölümlerini atlar.',
-    icon: 'fa-forward-step',
-    url: 'https://chromewebstore.google.com/detail/sponsorblock-for-youtube/mnjggcdmjocbbbhaepdhchncahnbgone'
+    icon: 'fa-forward-step'
   }
 ];
+const installingStoreExtensionIds = new Set();
 
 function openExtensionStore() {
   closeMenu();
@@ -839,6 +824,8 @@ function openExtensionStore() {
   const modal = document.getElementById('extension-store-modal');
   if (!modal) return;
   modal.classList.remove('hidden');
+  const search = document.getElementById('chrome-store-search');
+  if (search) search.value = '';
   renderExtensionStore();
   document.getElementById('chrome-import-list').classList.add('hidden');
 }
@@ -848,18 +835,50 @@ function closeExtensionStore() {
   if (modal) modal.classList.add('hidden');
 }
 
-function openChromeStoreListing(url) {
-  if (typeof url === 'string' && url.startsWith('https://chromewebstore.google.com/')) {
-    shell.openExternal(url).catch((error) => setStatusText(`Mağaza açılamadı: ${error.message}`));
-  }
-}
-
 function searchChromeStore() {
   const input = document.getElementById('chrome-store-search');
   const query = input ? input.value.trim() : '';
-  if (!query) return;
-  shell.openExternal(`https://chromewebstore.google.com/search/${encodeURIComponent(query)}`)
-    .catch((error) => setStatusText(`Chrome Web Store açılamadı: ${error.message}`));
+  renderExtensionStore(query);
+}
+
+async function installStoreExtension(extension, button) {
+  if (!extension || installingStoreExtensionIds.has(extension.id)) return;
+  extensionManager.scanExtensions();
+  if (extensionManager.extensions.has(extension.id)) {
+    setStatusText(`“${extension.name}” zaten yüklü`);
+    return;
+  }
+
+  installingStoreExtensionIds.add(extension.id);
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> İndiriliyor…';
+  }
+  setStatusText(`“${extension.name}” indiriliyor…`);
+
+  let download = null;
+  try {
+    download = await ipcRenderer.invoke('extension-store-download', extension.id);
+    const extensionId = extensionManager.installFromFolder(download.sourcePath, extension.id);
+    const runtime = await loadNativeExtensionForUi(extensionId);
+    renderExtensionsList();
+    reloadOpenWebviews();
+    if (runtime && runtime.ok) {
+      setStatusText(`“${extension.name}” uygulamaya kuruldu`);
+    } else {
+      alert(`“${extension.name}” kuruldu. Ancak Electron bu eklentinin kullandığı bazı Chrome özelliklerini desteklemiyor olabilir.\n\n${runtime?.error || 'Eklenti temel modda kullanılabilir.'}`);
+    }
+  } catch (error) {
+    alert(`“${extension.name}” kurulamadı: ${error.message}`);
+    setStatusText('Eklenti kurulamadı');
+  } finally {
+    if (download?.token) {
+      try { await ipcRenderer.invoke('extension-store-download-cleanup', download.token); } catch {}
+    }
+    installingStoreExtensionIds.delete(extension.id);
+    const input = document.getElementById('chrome-store-search');
+    renderExtensionStore(input ? input.value.trim() : '');
+  }
 }
 
 async function showChromeImports() {
@@ -923,6 +942,8 @@ async function importChromeExtension(extension) {
     const runtime = await loadNativeExtensionForUi(extensionId);
     renderExtensionsList();
     reloadOpenWebviews();
+    const search = document.getElementById('chrome-store-search');
+    renderExtensionStore(search ? search.value.trim() : '');
     await showChromeImports();
     if (runtime && runtime.ok) {
       setStatusText(`“${extension.name}” Chrome’dan aktarıldı`);
@@ -934,12 +955,29 @@ async function importChromeExtension(extension) {
   }
 }
 
-function renderExtensionStore() {
+function renderExtensionStore(query = '') {
   const grid = document.getElementById('extension-store-grid');
   if (!grid) return;
+  extensionManager.scanExtensions();
   grid.replaceChildren();
 
-  chromeStoreCatalog.forEach(extension => {
+  const normalizedQuery = query.toLocaleLowerCase('tr-TR');
+  const extensions = chromeStoreCatalog.filter(extension =>
+    `${extension.name} ${extension.publisher} ${extension.category} ${extension.description}`
+      .toLocaleLowerCase('tr-TR').includes(normalizedQuery)
+  );
+  const headingCount = document.getElementById('extension-store-count');
+  if (headingCount) headingCount.textContent = `${extensions.length} eklenti`;
+
+  if (!extensions.length) {
+    const empty = document.createElement('p');
+    empty.className = 'store-import-empty';
+    empty.textContent = 'Bu aramada mağazada eşleşen eklenti yok. Chrome’dan aktar seçeneğiyle Chrome profiline kurulu eklentileri ekleyebilirsin.';
+    grid.appendChild(empty);
+    return;
+  }
+
+  extensions.forEach(extension => {
     const card = document.createElement('article');
     card.className = 'store-card';
     const icon = document.createElement('div');
@@ -958,8 +996,18 @@ function renderExtensionStore() {
     description.textContent = extension.description;
     const button = document.createElement('button');
     button.className = 'btn-secondary';
-    button.innerHTML = '<i class="fas fa-arrow-up-right-from-square"></i> Mağazada aç';
-    button.onclick = () => openChromeStoreListing(extension.url);
+    const installed = extensionManager.extensions.has(extension.id);
+    const runtimeError = extensionRuntimeErrors.get(extension.id);
+    button.disabled = installed || installingStoreExtensionIds.has(extension.id);
+    button.title = runtimeError || '';
+    button.innerHTML = runtimeError
+      ? '<i class="fas fa-triangle-exclamation"></i> Kuruldu · uyumsuz olabilir'
+      : installed
+      ? '<i class="fas fa-check"></i> Yüklü'
+      : installingStoreExtensionIds.has(extension.id)
+        ? '<i class="fas fa-circle-notch fa-spin"></i> İndiriliyor…'
+        : '<i class="fas fa-download"></i> Uygulamaya kur';
+    button.onclick = () => installStoreExtension(extension, button);
     card.append(icon, category, name, publisher, description, button);
     grid.appendChild(card);
   });
@@ -1273,6 +1321,8 @@ async function deleteExtension(extId) {
     }
     renderExtensionsList();
     reloadOpenWebviews();
+    const storeSearch = document.getElementById('chrome-store-search');
+    renderExtensionStore(storeSearch ? storeSearch.value.trim() : '');
     setStatusText(`"${extId}" eklentisi silindi`);
   }
 }

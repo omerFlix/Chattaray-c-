@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, session, dialog } = require('electron');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
+const crypto = require('crypto');
 const https = require('https');
 const net = require('net');
 const { spawn } = require('child_process');
@@ -27,6 +28,11 @@ let extensionsDirectory = null;
 let githubUpdater = null;
 const nativeExtensions = new Map();
 const extensionLoadErrors = new Map();
+const STORE_EXTENSION_IDS = new Set([
+  'aapbdbdomjkkjkaonfhkkikfgjllcleb',
+  'mnjggcdmjocbbbhaepdhchncahnbgone'
+]);
+const storeDownloadFolders = new Map();
 const ADULT_BLOCKLIST_URL = 'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/porn-only/hosts';
 const ADULT_BLOCKLIST_REFRESH_MS = 24 * 60 * 60 * 1000;
 const ADULT_BLOCKLIST_MAX_BYTES = 12 * 1024 * 1024;
@@ -175,6 +181,225 @@ ipcMain.handle('extensions-chrome-path', (_event, extensionId) => {
   if (typeof extensionId !== 'string') return null;
   const extensionPath = chromeExtensionCandidates.get(extensionId);
   return extensionPath && fs.existsSync(path.join(extensionPath, 'manifest.json')) ? extensionPath : null;
+});
+
+function readProtoVarint(buffer, start) {
+  let value = 0;
+  let multiplier = 1;
+  let offset = start;
+  while (offset < buffer.length && offset - start < 10) {
+    const byte = buffer[offset++];
+    value += (byte & 0x7f) * multiplier;
+    if ((byte & 0x80) === 0) return { value, offset };
+    multiplier *= 128;
+  }
+  throw new Error('Chrome eklenti paketi bozuk (protobuf).');
+}
+
+function readProtoFields(buffer) {
+  const fields = [];
+  let offset = 0;
+  while (offset < buffer.length) {
+    const key = readProtoVarint(buffer, offset);
+    offset = key.offset;
+    const number = Math.floor(key.value / 8);
+    const wireType = key.value & 7;
+    if (!number) throw new Error('Chrome eklenti paketi bozuk (protobuf alanı).');
+
+    if (wireType === 0) {
+      const value = readProtoVarint(buffer, offset);
+      fields.push({ number, wireType, value: value.value });
+      offset = value.offset;
+    } else if (wireType === 1) {
+      if (offset + 8 > buffer.length) throw new Error('Chrome eklenti paketi eksik.');
+      fields.push({ number, wireType, value: buffer.subarray(offset, offset + 8) });
+      offset += 8;
+    } else if (wireType === 2) {
+      const length = readProtoVarint(buffer, offset);
+      offset = length.offset;
+      if (length.value > buffer.length - offset) throw new Error('Chrome eklenti paketi eksik.');
+      fields.push({ number, wireType, value: buffer.subarray(offset, offset + length.value) });
+      offset += length.value;
+    } else if (wireType === 5) {
+      if (offset + 4 > buffer.length) throw new Error('Chrome eklenti paketi eksik.');
+      fields.push({ number, wireType, value: buffer.subarray(offset, offset + 4) });
+      offset += 4;
+    } else {
+      throw new Error('Chrome eklenti paketi bilinmeyen bir protobuf biçimi kullanıyor.');
+    }
+  }
+  return fields;
+}
+
+function chromeExtensionIdFromPublicKey(publicKey) {
+  const digest = crypto.createHash('sha256').update(publicKey).digest();
+  return Array.from(digest.subarray(0, 16))
+    .map(byte => String.fromCharCode(97 + (byte >> 4), 97 + (byte & 0x0f)))
+    .join('');
+}
+
+function getCrxPayload(crx) {
+  if (crx.length < 16 || crx.toString('ascii', 0, 4) !== 'Cr24') {
+    throw new Error('Chrome Web Store geçerli bir CRX paketi göndermedi.');
+  }
+
+  const formatVersion = crx.readUInt32LE(4);
+  let publicKey;
+  let zipOffset;
+  let crx3ExtensionId = null;
+
+  if (formatVersion === 2) {
+    const publicKeyLength = crx.readUInt32LE(8);
+    const signatureLength = crx.readUInt32LE(12);
+    zipOffset = 16 + publicKeyLength + signatureLength;
+    if (zipOffset >= crx.length) throw new Error('Chrome eklenti paketi eksik.');
+    publicKey = crx.subarray(16, 16 + publicKeyLength);
+  } else if (formatVersion === 3) {
+    const headerLength = crx.readUInt32LE(8);
+    zipOffset = 12 + headerLength;
+    if (headerLength > crx.length || zipOffset >= crx.length) throw new Error('Chrome eklenti paketi eksik.');
+    const headerFields = readProtoFields(crx.subarray(12, zipOffset));
+    const proofFields = headerFields.filter(field => (field.number === 1 || field.number === 2) && field.wireType === 2);
+    for (const proof of proofFields) {
+      const keyField = readProtoFields(proof.value).find(field => field.number === 1 && field.wireType === 2);
+      if (keyField && keyField.value.length) {
+        publicKey = keyField.value;
+        break;
+      }
+    }
+    const signedHeader = headerFields.find(field => field.number === 10000 && field.wireType === 2);
+    if (signedHeader) {
+      const idField = readProtoFields(signedHeader.value).find(field => field.number === 1 && field.wireType === 2);
+      if (idField && idField.value.length === 16) {
+        crx3ExtensionId = Array.from(idField.value)
+          .map(byte => String.fromCharCode(97 + (byte >> 4), 97 + (byte & 0x0f)))
+          .join('');
+      }
+    }
+  } else {
+    throw new Error(`Chrome CRX${formatVersion} paket biçimi desteklenmiyor.`);
+  }
+
+  if (!publicKey || !publicKey.length) throw new Error('Eklenti paketinin yayıncı anahtarı okunamadı.');
+  if (crx.subarray(zipOffset, zipOffset + 4).toString('ascii') !== 'PK\u0003\u0004') {
+    throw new Error('Chrome eklenti paketinin ZIP içeriği bulunamadı.');
+  }
+  return {
+    zip: crx.subarray(zipOffset),
+    publicKey,
+    extensionId: chromeExtensionIdFromPublicKey(publicKey),
+    signedExtensionId: crx3ExtensionId
+  };
+}
+
+function isTrustedChromeStoreHost(hostname) {
+  return hostname === 'clients2.google.com'
+    || hostname.endsWith('.google.com')
+    || hostname === 'googleusercontent.com'
+    || hostname.endsWith('.googleusercontent.com')
+    || hostname === 'gvt1.com'
+    || hostname.endsWith('.gvt1.com');
+}
+
+function downloadChromeStoreCrx(extensionId, redirectsLeft = 5) {
+  const version = String(process.versions.chrome || '120.0.0.0').split('.').slice(0, 4).join('.');
+  const url = new URL('https://clients2.google.com/service/update2/crx');
+  url.searchParams.set('response', 'redirect');
+  url.searchParams.set('prodversion', version);
+  url.searchParams.set('acceptformat', 'crx2,crx3');
+  url.searchParams.set('x', `id=${extensionId}&installsource=ondemand&uc`);
+  return downloadChromeStoreCrxFromUrl(url, redirectsLeft);
+}
+
+function downloadChromeStoreCrxFromUrl(url, redirectsLeft) {
+  return new Promise((resolve, reject) => {
+    const request = https.get(url, { headers: { 'User-Agent': `ChatTarayici/${app.getVersion()}` } }, response => {
+      const status = response.statusCode || 0;
+      if ([301, 302, 303, 307, 308].includes(status)) {
+        const location = response.headers.location;
+        response.resume();
+        if (!location || redirectsLeft <= 0) return reject(new Error('Chrome Web Store indirme yönlendirmesi tamamlanamadı.'));
+        const nextUrl = new URL(location, url);
+        if (nextUrl.protocol !== 'https:' || !isTrustedChromeStoreHost(nextUrl.hostname)) {
+          return reject(new Error('Chrome Web Store güvenli olmayan bir indirme adresi döndürdü.'));
+        }
+        downloadChromeStoreCrxFromUrl(nextUrl, redirectsLeft - 1).then(resolve, reject);
+        return;
+      }
+      if (status !== 200) {
+        response.resume();
+        return reject(new Error(status === 204
+          ? 'Bu eklenti bu uygulamanın Chromium sürümüyle uyumlu bir paket sunmuyor. Chrome’dan aktar seçeneğini deneyebilirsin.'
+          : `Chrome Web Store indirme hatası (HTTP ${status}).`));
+      }
+      const chunks = [];
+      let total = 0;
+      response.on('data', chunk => {
+        total += chunk.length;
+        if (total > 100 * 1024 * 1024) {
+          request.destroy(new Error('Eklenti paketi 100 MB sınırını aşıyor.'));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      response.on('end', () => resolve(Buffer.concat(chunks)));
+      response.on('error', reject);
+    });
+    request.setTimeout(45000, () => request.destroy(new Error('Eklenti indirmesi zaman aşımına uğradı.')));
+    request.on('error', reject);
+  });
+}
+
+ipcMain.handle('extension-store-download', async (_event, extensionId) => {
+  if (typeof extensionId !== 'string' || !STORE_EXTENSION_IDS.has(extensionId)) {
+    throw new Error('Mağaza eklentisi bulunamadı.');
+  }
+
+  const crx = await downloadChromeStoreCrx(extensionId);
+  const packageData = getCrxPayload(crx);
+  if (packageData.extensionId !== extensionId || (packageData.signedExtensionId && packageData.signedExtensionId !== extensionId)) {
+    throw new Error('İndirilen eklentinin kimliği mağaza kaydıyla eşleşmiyor.');
+  }
+
+  const token = crypto.randomUUID();
+  const root = path.join(app.getPath('temp'), 'ChatTarayici-extension-store', token);
+  const zipPath = path.join(root, 'extension.zip');
+  const unpackedPath = path.join(root, 'unpacked');
+  fs.mkdirSync(unpackedPath, { recursive: true });
+  storeDownloadFolders.set(token, root);
+
+  try {
+    fs.writeFileSync(zipPath, packageData.zip);
+    await require('extract-zip')(zipPath, { dir: unpackedPath });
+    const manifestPath = path.join(unpackedPath, 'manifest.json');
+    if (!fs.existsSync(manifestPath)) throw new Error('İndirilen eklentide manifest.json bulunamadı.');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    if (manifest.key && chromeExtensionIdFromPublicKey(Buffer.from(manifest.key, 'base64')) !== extensionId) {
+      throw new Error('Eklentinin manifest kimliği yayıncı imzasıyla eşleşmiyor.');
+    }
+    if (!manifest.key) {
+      manifest.key = packageData.publicKey.toString('base64');
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+    }
+    return {
+      token,
+      sourcePath: unpackedPath,
+      name: typeof manifest.name === 'string' ? manifest.name : extensionId,
+      version: typeof manifest.version === 'string' ? manifest.version : '—'
+    };
+  } catch (error) {
+    storeDownloadFolders.delete(token);
+    fs.rmSync(root, { recursive: true, force: true });
+    throw error;
+  }
+});
+
+ipcMain.handle('extension-store-download-cleanup', (_event, token) => {
+  if (typeof token !== 'string' || !storeDownloadFolders.has(token)) return false;
+  const root = storeDownloadFolders.get(token);
+  storeDownloadFolders.delete(token);
+  fs.rmSync(root, { recursive: true, force: true });
+  return true;
 });
 
 function parseAdultBlocklist(contents) {

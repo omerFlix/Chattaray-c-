@@ -215,7 +215,7 @@
     </div>
   </div>
 
-  <!-- Chrome Web Store discovery and import -->
+  <!-- In-app Chrome extension store and profile import -->
   <div id="extension-store-modal" class="modal-overlay hidden">
     <div class="modal-card extension-store-modal-card">
       <div class="modal-header">
@@ -223,16 +223,16 @@
         <button class="modal-close-btn" onclick="closeExtensionStore()"><i class="fas fa-xmark"></i></button>
       </div>
       <div class="store-notice">
-        <strong>Chrome Web Store’dan eklenti bul.</strong>
-        <span>Mağaza varsayılan tarayıcıda açılır. Chrome’da kurduktan sonra “Chrome’dan aktar” seçeneğini kullan. Electron .crx dosyalarını doğrudan kuramıyor; bazı Chrome eklentileri de uyumlu olmayabilir. Aktarılan kopya Chrome’dan otomatik güncellenmez ve Chrome’daki eklenti ayarlarını taşımayabilir.</span>
+        <strong>Eklentileri ChatTarayıcı içinden kur.</strong>
+        <span>Listeden bir eklenti seçip doğrudan bu uygulamaya kurabilirsin. Electron Chrome’un tüm eklenti özelliklerini desteklemediğinden bazı eklentiler kısıtlı çalışabilir. Arama, aşağıdaki uygulama kataloğunda yapılır; Chrome profiline kurulu eklentileri de aktarabilirsin.</span>
       </div>
       <div class="store-search-row">
-        <input id="chrome-store-search" type="text" placeholder="Chrome Web Store’da eklenti ara…" onkeydown="if(event.key==='Enter') searchChromeStore()">
-        <button class="btn-primary" onclick="searchChromeStore()"><i class="fas fa-magnifying-glass"></i> Mağazada ara</button>
+        <input id="chrome-store-search" type="text" placeholder="Uygulama kataloğunda eklenti ara…" oninput="searchChromeStore()" onkeydown="if(event.key==='Enter') searchChromeStore()">
+        <button class="btn-primary" onclick="searchChromeStore()"><i class="fas fa-magnifying-glass"></i> Ara</button>
         <button class="btn-secondary" onclick="showChromeImports()"><i class="fab fa-chrome"></i> Chrome’dan aktar</button>
       </div>
       <div class="modal-body extension-store-body">
-        <div class="store-section-heading"><h2>Öne çıkanlar</h2><span>Resmî Chrome Web Store bağlantıları</span></div>
+        <div class="store-section-heading"><h2>Uygulamaya kurulabilenler</h2><span id="extension-store-count"></span></div>
         <div id="extension-store-grid" class="extension-store-grid"></div>
         <div id="chrome-import-list" class="chrome-import-list hidden"></div>
       </div>
