@@ -1978,6 +1978,60 @@ input:checked + .slider:before {
   font-size: 13px;
 }
 
+.store-link-install {
+  display: grid;
+  gap: 8px;
+  padding: 14px 20px;
+  background: rgba(108, 99, 255, .045);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.store-link-install > label {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.store-link-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.store-link-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  outline: none;
+  font: inherit;
+  font-size: 12px;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.store-link-row input:focus {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px rgba(108, 99, 255, .12);
+}
+
+.store-link-status {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.store-link-status.error { color: var(--danger-color); }
+.store-link-status.success { color: var(--success-color); }
+
+.store-link-row button:disabled {
+  opacity: .72;
+  cursor: wait;
+}
+
 .store-search-row {
   display: flex;
   flex-wrap: wrap;

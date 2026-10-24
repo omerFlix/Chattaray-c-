@@ -28,10 +28,6 @@ let extensionsDirectory = null;
 let githubUpdater = null;
 const nativeExtensions = new Map();
 const extensionLoadErrors = new Map();
-const STORE_EXTENSION_IDS = new Set([
-  'aapbdbdomjkkjkaonfhkkikfgjllcleb',
-  'mnjggcdmjocbbbhaepdhchncahnbgone'
-]);
 const storeDownloadFolders = new Map();
 const ADULT_BLOCKLIST_URL = 'https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/porn-only/hosts';
 const ADULT_BLOCKLIST_REFRESH_MS = 24 * 60 * 60 * 1000;
@@ -351,8 +347,8 @@ function downloadChromeStoreCrxFromUrl(url, redirectsLeft) {
 }
 
 ipcMain.handle('extension-store-download', async (_event, extensionId) => {
-  if (typeof extensionId !== 'string' || !STORE_EXTENSION_IDS.has(extensionId)) {
-    throw new Error('Mağaza eklentisi bulunamadı.');
+  if (typeof extensionId !== 'string' || !/^[a-p]{32}$/.test(extensionId)) {
+    throw new Error('Chrome Web Mağazası eklenti kimliği geçersiz.');
   }
 
   const crx = await downloadChromeStoreCrx(extensionId);

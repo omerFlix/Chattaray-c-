@@ -249,8 +249,16 @@
         <button class="modal-close-btn" onclick="closeExtensionStore()"><i class="fas fa-xmark"></i></button>
       </div>
       <div class="store-notice">
-        <strong>Eklentileri ChatTarayıcı içinden kur.</strong>
-        <span>Listeden bir eklenti seçip doğrudan bu uygulamaya kurabilirsin. Electron Chrome’un tüm eklenti özelliklerini desteklemediğinden bazı eklentiler kısıtlı çalışabilir. Arama, aşağıdaki uygulama kataloğunda yapılır; Chrome profiline kurulu eklentileri de aktarabilirsin.</span>
+        <strong>Chrome Web Mağazası’nın kendi kurulum düğmesi bu uygulamada çalışmaz.</strong>
+        <span>Mağaza bağlantısını aşağıya yapıştırıp eklentiyi ChatTarayıcı’ya indirebilirsin. Bazı eklentiler Electron’un Chrome API desteği nedeniyle kısıtlı çalışabilir.</span>
+      </div>
+      <div class="store-link-install">
+        <label for="chrome-store-link-input">Chrome Web Mağazası bağlantısından yükle</label>
+        <div class="store-link-row">
+          <input id="chrome-store-link-input" type="text" spellcheck="false" placeholder="Mağaza bağlantısını veya eklenti kimliğini yapıştır" onkeydown="if(event.key==='Enter') installChromeStoreLink()">
+          <button id="chrome-store-link-install-btn" class="btn-primary" type="button" onclick="installChromeStoreLink()"><i class="fas fa-download"></i> İndir ve kur</button>
+        </div>
+        <p id="chrome-store-link-status" class="store-link-status hidden" role="status" aria-live="polite"></p>
       </div>
       <div class="store-search-row">
         <input id="chrome-store-search" type="text" placeholder="Uygulama kataloğunda eklenti ara…" oninput="searchChromeStore()" onkeydown="if(event.key==='Enter') searchChromeStore()">

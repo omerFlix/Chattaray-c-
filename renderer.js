@@ -1143,6 +1143,17 @@ function openExtensionStore() {
   modal.classList.remove('hidden');
   const search = document.getElementById('chrome-store-search');
   if (search) search.value = '';
+  const linkInput = document.getElementById('chrome-store-link-input');
+  const linkStatus = document.getElementById('chrome-store-link-status');
+  if (linkInput) {
+    let activeUrl = '';
+    try { activeUrl = getActiveWebview()?.getURL() || ''; } catch {}
+    linkInput.value = extractChromeStoreExtensionId(activeUrl) ? activeUrl : '';
+    if (linkStatus) {
+      if (linkInput.value) setChromeStoreLinkStatus('Açık olan Chrome Web Mağazası eklentisi hazır. “İndir ve kur” düğmesine bas.');
+      else linkStatus.classList.add('hidden');
+    }
+  }
   renderExtensionStore();
   document.getElementById('chrome-import-list').classList.add('hidden');
 }
@@ -1158,11 +1169,69 @@ function searchChromeStore() {
   renderExtensionStore(query);
 }
 
+function extractChromeStoreExtensionId(value) {
+  const input = String(value || '').trim();
+  if (/^[a-p]{32}$/i.test(input)) return input.toLowerCase();
+
+  let url;
+  try {
+    url = new URL(/^https?:\/\//i.test(input) ? input : `https://${input}`);
+  } catch {
+    return null;
+  }
+  if (!['chromewebstore.google.com', 'chrome.google.com'].includes(url.hostname.toLowerCase())) return null;
+
+  const pathParts = url.pathname.split('/').filter(Boolean).reverse();
+  const id = pathParts.find(part => /^[a-p]{32}$/i.test(part));
+  return id ? id.toLowerCase() : null;
+}
+
+function setChromeStoreLinkStatus(message, state = '') {
+  const status = document.getElementById('chrome-store-link-status');
+  if (!status) return;
+  status.textContent = message;
+  status.classList.remove('hidden', 'error', 'success');
+  if (state) status.classList.add(state);
+}
+
+async function installChromeStoreLink() {
+  const input = document.getElementById('chrome-store-link-input');
+  const button = document.getElementById('chrome-store-link-install-btn');
+  const extensionId = extractChromeStoreExtensionId(input?.value);
+  if (!extensionId) {
+    setChromeStoreLinkStatus('Chrome Web Mağazası’ndaki eklenti sayfasının bağlantısını veya 32 karakterli eklenti kimliğini yapıştır.', 'error');
+    input?.focus();
+    return;
+  }
+
+  if (button) {
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> İndiriliyor…';
+  }
+  setChromeStoreLinkStatus('Eklenti Google’dan indiriliyor ve imzası doğrulanıyor…');
+  try {
+    await installStoreExtension({
+      id: extensionId,
+      name: `Chrome Web Mağazası eklentisi`,
+      fromStoreLink: true
+    }, button);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.innerHTML = '<i class="fas fa-download"></i> İndir ve kur';
+    }
+  }
+}
+
 async function installStoreExtension(extension, button) {
   if (!extension || installingStoreExtensionIds.has(extension.id)) return;
+  const fromStoreLink = Boolean(extension.fromStoreLink);
   extensionManager.scanExtensions();
   if (extensionManager.extensions.has(extension.id)) {
-    setStatusText(`“${extension.name}” zaten yüklü`);
+    const installed = extensionManager.extensions.get(extension.id);
+    const installedName = installed?.manifest?.name || extension.name;
+    if (fromStoreLink) setChromeStoreLinkStatus(`“${installedName}” zaten bu uygulamada yüklü.`, 'success');
+    setStatusText(`“${installedName}” zaten yüklü`);
     return;
   }
 
@@ -1176,17 +1245,22 @@ async function installStoreExtension(extension, button) {
   let download = null;
   try {
     download = await ipcRenderer.invoke('extension-store-download', extension.id);
+    const extensionName = download.name || extension.name;
     const extensionId = extensionManager.installFromFolder(download.sourcePath, extension.id);
     const runtime = await loadNativeExtensionForUi(extensionId);
     renderExtensionsList();
     reloadOpenWebviews();
     if (runtime && runtime.ok) {
-      setStatusText(`“${extension.name}” uygulamaya kuruldu`);
+      setStatusText(`“${extensionName}” uygulamaya kuruldu`);
+      if (fromStoreLink) setChromeStoreLinkStatus(`“${extensionName}” indirildi ve ChatTarayıcı’ya kuruldu.`, 'success');
     } else {
-      alert(`“${extension.name}” kuruldu. Ancak Electron bu eklentinin kullandığı bazı Chrome özelliklerini desteklemiyor olabilir.\n\n${runtime?.error || 'Eklenti temel modda kullanılabilir.'}`);
+      const message = `“${extensionName}” kuruldu. Ancak Electron bu eklentinin kullandığı bazı Chrome özelliklerini desteklemiyor olabilir. ${runtime?.error || 'Bazı özellikleri çalışmayabilir.'}`;
+      if (fromStoreLink) setChromeStoreLinkStatus(message, 'error');
+      else alert(`${message}\n\nEklenti temel modda kullanılabilir.`);
     }
   } catch (error) {
-    alert(`“${extension.name}” kurulamadı: ${error.message}`);
+    if (fromStoreLink) setChromeStoreLinkStatus(`Eklenti indirilemedi: ${error.message}`, 'error');
+    else alert(`“${extension.name}” kurulamadı: ${error.message}`);
     setStatusText('Eklenti kurulamadı');
   } finally {
     if (download?.token) {
