@@ -366,6 +366,27 @@ function searchFromNTP(query) {
   navigateTo(query);
 }
 
+function updateNtpClock() {
+  const now = new Date();
+  const hour = now.getHours();
+  const greeting = hour < 5 ? 'İyi geceler' : hour < 12 ? 'Günaydın' : hour < 18 ? 'İyi günler' : 'İyi akşamlar';
+  const greetingEl = document.getElementById('ntp-greeting');
+  const dateEl = document.getElementById('ntp-date');
+  const clockEl = document.getElementById('ntp-clock');
+
+  if (greetingEl) greetingEl.textContent = greeting;
+  if (dateEl) {
+    dateEl.textContent = new Intl.DateTimeFormat('tr-TR', {
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+    }).format(now);
+  }
+  if (clockEl) {
+    clockEl.textContent = new Intl.DateTimeFormat('tr-TR', {
+      hour: '2-digit', minute: '2-digit'
+    }).format(now);
+  }
+}
+
 function goBack() {
   const webview = getActiveWebview();
   if (webview && webview.canGoBack()) {
@@ -1202,6 +1223,8 @@ urlIn.addEventListener('focus', () => {
 // ===== Initialize =====
 function init() {
   renderBookmarks();
+  updateNtpClock();
+  setInterval(updateNtpClock, 60_000);
   createNewTab();
 
   const exts = extensionManager.scanExtensions();

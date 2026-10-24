@@ -248,17 +248,31 @@
     <!-- New Tab Page (shown when no URL) -->
     <div id="new-tab-page" class="hidden">
       <div id="ntp-content">
-        <div id="ntp-logo">
-          <i class="fas fa-globe"></i>
-          <h1>ChatTarayıcı</h1>
-          <p>Hızlı ve eklenti destekli web tarayıcınız</p>
+        <div id="ntp-heading">
+          <div id="ntp-brand"><span class="ntp-brand-icon"><i class="fas fa-globe"></i></span> ChatTarayıcı</div>
+          <div id="ntp-welcome">
+            <div>
+              <p id="ntp-greeting">Merhaba</p>
+              <h1>Bugün ne keşfediyoruz?</h1>
+              <p id="ntp-date"></p>
+            </div>
+            <div id="ntp-clock" aria-label="Saat"></div>
+          </div>
         </div>
         <div id="ntp-search">
           <div id="ntp-search-box">
             <i class="fas fa-search"></i>
-            <input type="text" id="ntp-search-input" placeholder="Google'da ara veya URL gir..."
+            <input type="text" id="ntp-search-input" placeholder="Web'de ara veya bir adres yaz"
               onkeydown="if(event.key==='Enter') searchFromNTP(this.value)" autofocus>
+            <span class="ntp-search-hint">ENTER <i class="fas fa-arrow-turn-down"></i></span>
           </div>
+        </div>
+        <div class="ntp-section-heading">
+          <div>
+            <span class="ntp-eyebrow">HIZLI ERİŞİM</span>
+            <h2>Favori sitelerin</h2>
+          </div>
+          <span class="ntp-section-note"><i class="fas fa-arrow-pointer"></i> Açmak için seç</span>
         </div>
         <div id="ntp-shortcuts">
           <div class="shortcut-item" onclick="navigateTo('https://www.google.com')">
@@ -310,6 +324,7 @@
             <span>LinkedIn</span>
           </div>
         </div>
+        <div class="ntp-footer"><i class="fas fa-wand-magic-sparkles"></i> Arama yap, keşfet, devam et.</div>
       </div>
     </div>
   </div>
