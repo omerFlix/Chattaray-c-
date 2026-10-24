@@ -1,0 +1,28 @@
+/* Kalkan Reklam Engelleyici CSS Filtresi */
+.adsbygoogle,
+.ad-banner,
+.advertisement,
+[id*="google_ads"],
+[class*="ad-container"],
+.ytp-ad-overlay-container,
+.ytp-ad-message-container,
+ytd-ad-slot-renderer,
+ytd-promoted-sparkles-web-renderer,
+ytd-banner-promo-renderer-background,
+#player-ads,
+.video-ads,
+.ytp-ad-module,
+iframe[src*="doubleclick"],
+iframe[src*="googlesyndication"],
+[data-ad-client],
+.ad-placement,
+.sponsored-post,
+[data-ad-unit],
+[id*="banner-ad"] {
+  display: none !important;
+  visibility: hidden !important;
+  height: 0 !important;
+  width: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

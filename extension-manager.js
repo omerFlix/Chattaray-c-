@@ -6,6 +6,7 @@ class ExtensionManager {
     this.extensionsDir = extensionsDir;
     this.extensions = new Map();
     this.enabledExtensions = new Set();
+    this.knownExtensions = new Set();
 
     // Create extensions dir if not exists
     if (!fs.existsSync(this.extensionsDir)) {
@@ -22,6 +23,7 @@ class ExtensionManager {
       if (fs.existsSync(this.stateFile)) {
         const data = JSON.parse(fs.readFileSync(this.stateFile, 'utf-8'));
         this.enabledExtensions = new Set(data.enabled || []);
+        this.knownExtensions = new Set(data.known || data.enabled || []);
       }
     } catch (e) {
       console.error('Failed to load extension state:', e);
@@ -31,7 +33,8 @@ class ExtensionManager {
   saveState() {
     try {
       fs.writeFileSync(this.stateFile, JSON.stringify({
-        enabled: Array.from(this.enabledExtensions)
+        enabled: Array.from(this.enabledExtensions),
+        known: Array.from(this.knownExtensions)
       }, null, 2));
     } catch (e) {
       console.error('Failed to save extension state:', e);
@@ -44,6 +47,7 @@ class ExtensionManager {
 
     if (!fs.existsSync(this.extensionsDir)) return [];
 
+    const hasSavedState = fs.existsSync(this.stateFile);
     const dirs = fs.readdirSync(this.extensionsDir, { withFileTypes: true })
       .filter(d => d.isDirectory() && !d.name.startsWith('.'));
 
@@ -57,10 +61,8 @@ class ExtensionManager {
           const popupRelPath = this.findPopupPath(extPath, manifest);
           const iconRelPath = this.findIconPath(extPath, manifest);
 
-          // By default, if not explicitly disabled, enable newly installed extensions
-          if (!fs.existsSync(this.stateFile)) {
-            this.enabledExtensions.add(dir.name);
-          }
+          const isNewExtension = !this.knownExtensions.has(dir.name);
+          const enabled = !hasSavedState || isNewExtension || this.enabledExtensions.has(dir.name);
 
           const ext = {
             id: dir.name,
@@ -68,12 +70,12 @@ class ExtensionManager {
             manifest: manifest,
             popupFile: popupRelPath,
             iconFile: iconRelPath,
-            enabled: this.enabledExtensions.size === 0 ? true : this.enabledExtensions.has(dir.name)
+            enabled
           };
 
-          if (this.enabledExtensions.size === 0) {
-            this.enabledExtensions.add(dir.name);
-          }
+          this.knownExtensions.add(dir.name);
+          if (enabled) this.enabledExtensions.add(dir.name);
+          else this.enabledExtensions.delete(dir.name);
 
           this.extensions.set(dir.name, ext);
         } catch (e) {
@@ -167,6 +169,7 @@ class ExtensionManager {
 
     ext.enabled = true;
     this.enabledExtensions.add(extId);
+    this.knownExtensions.add(extId);
     this.saveState();
     return true;
   }
@@ -208,8 +211,10 @@ class ExtensionManager {
     const extId = (manifest.id || manifest.name || path.basename(sourcePath)).toLowerCase().replace(/[^a-z0-9-_]/g, '-');
     const targetPath = path.join(this.extensionsDir, extId);
 
-    // Copy folder
-    this.copyFolderSync(sourcePath, targetPath);
+    // Avoid copying a folder onto itself when reinstalling from the extensions directory.
+    if (path.resolve(sourcePath) !== path.resolve(targetPath)) {
+      this.copyFolderSync(sourcePath, targetPath);
+    }
 
     // Enable by default
     this.enabledExtensions.add(extId);

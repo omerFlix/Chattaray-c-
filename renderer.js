@@ -1,6 +1,7 @@
 const { ipcRenderer, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { pathToFileURL } = require('url');
 const ExtensionManager = require('./extension-manager');
 const CentralUpdater = require('./updater');
 
@@ -16,18 +17,13 @@ const DEFAULT_HOME = 'about:newtab';
 const SEARCH_ENGINE = 'https://www.google.com/search?q=';
 
 // ===== Extensions & Central Updater =====
-const extensionsDir = path.join(__dirname, 'extensions');
+const extensionsDir = ipcRenderer.sendSync('extensions-get-directory');
 const extensionManager = new ExtensionManager(extensionsDir);
+let activePopupExtensionId = null;
 
 const updater = new CentralUpdater({
   appRoot: __dirname,
-  onUpdateApplied: (info) => {
-    const list = info.updatedFiles ? info.updatedFiles.join(', ') : 'Tüm kodlar';
-    showUpdateToast(`Yeni sürüm indirildi (${list}). Yeniden başlatın.`);
-    const badge = document.getElementById('sync-badge');
-    if (badge) badge.classList.remove('hidden');
-    setStatusText(`Yeni güncelleme indirildi! (${info.updatedFiles.length} dosya)`);
-  },
+  configPath: path.join(path.dirname(extensionsDir), 'update-config.json'),
   onError: (err) => {
     setUpdateStatus(err, true);
   },
@@ -48,10 +44,6 @@ ipcRenderer.on('window-maximized', (event, isMaximized) => {
     icon.className = isMaximized ? 'far fa-clone' : 'far fa-square';
   }
 });
-
-function restartBrowser() {
-  ipcRenderer.send('app-restart');
-}
 
 // ===== Tab Management =====
 function createNewTab(url = null, incognito = false) {
@@ -111,7 +103,6 @@ function createWebview(tabId, url, incognito = false) {
 
   const webview = document.createElement('webview');
   webview.setAttribute('data-tab', tabId);
-  webview.setAttribute('src', url);
   webview.setAttribute('autosize', 'on');
   if (incognito) {
     webview.setAttribute('partition', `persist:incognito-${tabId}`);
@@ -187,6 +178,8 @@ function createWebview(tabId, url, incognito = false) {
     setStatusText(e.url || '');
   });
 
+  // Attach listeners before navigation so the first page load can receive extensions.
+  webview.setAttribute('src', url);
   return webview;
 }
 
@@ -743,7 +736,7 @@ function renderExtensionsDropdown() {
     };
 
     const iconHtml = ext.icon && fs.existsSync(ext.icon)
-      ? `<img src="file://${ext.icon}">`
+      ? `<img src="${pathToFileURL(ext.icon).href}">`
       : `<i class="fas fa-puzzle-piece"></i>`;
 
     item.innerHTML = `
@@ -790,7 +783,7 @@ function renderExtensionsList() {
     card.className = 'extension-card';
 
     const iconHtml = ext.icon && fs.existsSync(ext.icon)
-      ? `<img src="file://${ext.icon}">`
+      ? `<img src="${pathToFileURL(ext.icon).href}">`
       : `<i class="fas fa-puzzle-piece"></i>`;
 
     card.innerHTML = `
@@ -834,7 +827,7 @@ function updateActiveExtensionsBar(exts) {
     btn.onclick = () => openExtensionPopup(ext.id);
 
     if (ext.icon && fs.existsSync(ext.icon)) {
-      btn.innerHTML = `<img src="file://${ext.icon}" style="width:18px; height:18px; border-radius:3px;">`;
+      btn.innerHTML = `<img src="${pathToFileURL(ext.icon).href}" style="width:18px; height:18px; border-radius:3px;">`;
     } else {
       btn.innerHTML = `<i class="fas fa-puzzle-piece"></i>`;
     }
@@ -885,8 +878,9 @@ function toggleExtensionState(extId, isEnabled) {
     extensionManager.disableExtension(extId);
   }
   renderExtensionsList();
-  const webview = getActiveWebview();
-  if (webview) webview.reload();
+  document.querySelectorAll('#webview-container webview').forEach((webview) => {
+    if (webview.getURL && webview.getURL().startsWith('http')) webview.reload();
+  });
 }
 
 function deleteExtension(extId) {
@@ -907,11 +901,13 @@ function openExtensionPopup(extId) {
   if (!popupInfo) return;
 
   const ext = extensionManager.extensions.get(extId);
+  activePopupExtensionId = extId;
   title.textContent = ext ? (ext.manifest.name || ext.id) : 'Eklenti';
 
   if (ext && ext.popupFile) {
-    const fullPopupPath = path.join(ext.path, ext.popupFile).replace(/\\/g, '/');
-    frame.src = `file:///${fullPopupPath}`;
+    const popupUrl = pathToFileURL(path.join(ext.path, ext.popupFile));
+    popupUrl.searchParams.set('enabled', String(!!ext.enabled));
+    frame.src = popupUrl.href;
   } else {
     const encodedHtml = encodeURIComponent(popupInfo.html);
     frame.src = `data:text/html;charset=utf-8,${encodedHtml}`;
@@ -923,7 +919,15 @@ function openExtensionPopup(extId) {
 function closeExtensionPopup() {
   const container = document.getElementById('extension-popup-container');
   if (container) container.classList.add('hidden');
+  activePopupExtensionId = null;
 }
+
+window.addEventListener('message', (event) => {
+  const frame = document.getElementById('extension-popup-frame');
+  if (!frame || event.source !== frame.contentWindow || !activePopupExtensionId) return;
+  if (!event.data || (event.data.type !== 'toggle-extension' && event.data.type !== 'toggle-adblock-extension')) return;
+  toggleExtensionState(activePopupExtensionId, Boolean(event.data.enabled));
+});
 
 // ==========================================
 // 🔄 MERKEZİ OTOMATİK GÜNCELLEME (GITHUB)
@@ -972,20 +976,6 @@ function setUpdateStatus(msg, isError) {
     box.style.borderColor = isError ? 'var(--danger-color)' : 'var(--accent-primary)';
     box.style.color = isError ? 'var(--danger-color)' : 'var(--text-primary)';
   }
-}
-
-function showUpdateToast(msg) {
-  const toast = document.getElementById('update-toast');
-  const msgEl = document.getElementById('update-toast-msg');
-  if (toast && msgEl) {
-    msgEl.textContent = msg || 'Yeni sürüm indirildi. Değişiklikleri görmek için yeniden başlatın.';
-    toast.classList.remove('hidden');
-  }
-}
-
-function dismissUpdateToast() {
-  const toast = document.getElementById('update-toast');
-  if (toast) toast.classList.add('hidden');
 }
 
 // ===== Utility Escape HTML =====
@@ -1114,10 +1104,6 @@ function init() {
   const exts = extensionManager.scanExtensions();
   updateActiveExtensionsBar(exts);
 
-  // Start background auto-updates
-  if (updater.config.autoCheck) {
-    updater.startAutoUpdate();
-  }
 }
 
 init();

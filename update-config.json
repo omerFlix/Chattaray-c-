@@ -1,6 +1,6 @@
 {
   "githubRepo": "omerFlix/Chattaray-c-",
   "branch": "main",
-  "autoCheck": true,
+  "autoCheck": false,
   "checkIntervalMinutes": 10
 }

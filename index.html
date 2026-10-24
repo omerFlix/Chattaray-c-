@@ -206,7 +206,7 @@
     <div class="modal-card" style="width: 540px;">
       <div class="modal-header">
         <div class="modal-title">
-          <i class="fas fa-cloud-arrow-down"></i> Otomatik Güncellemeler
+            <i class="fas fa-cloud-arrow-down"></i> Güncelleme Denetimi
         </div>
         <button class="modal-close-btn" onclick="toggleUpdatesModal()"><i class="fas fa-xmark"></i></button>
       </div>
@@ -214,7 +214,7 @@
       <div class="modal-body">
         <div class="sync-section">
           <p class="sync-description">
-            Sen projeyi GitHub'a yüklediğinde, bu tarayıcıyı kullanan herkes (arkadaşların dahil) arkada otomatik olarak en son güncellemeleri alır!
+            Güncellemeleri bu ekrandan elle kontrol edebilirsiniz. Uygulama dosyaları arka planda kendiliğinden değiştirilmez.
           </p>
 
           <div class="form-group">
@@ -244,89 +244,74 @@
     </div>
   </div>
 
-  <!-- Update Notification Toast -->
-  <div id="update-toast" class="update-toast hidden">
-    <div class="update-toast-content">
-      <i class="fas fa-circle-check toast-icon"></i>
-      <div>
-        <h4>Yeni Güncelleme İndirildi! 🎉</h4>
-        <p id="update-toast-msg">Yeni sürüm dosyaları hazır. Değişiklikleri uygulamak için yeniden başlatın.</p>
-      </div>
-    </div>
-    <div class="update-toast-actions">
-      <button class="btn-restart" onclick="restartBrowser()">Yeniden Başlat</button>
-      <button class="btn-dismiss" onclick="dismissUpdateToast()"><i class="fas fa-xmark"></i></button>
-    </div>
-  </div>
-
   <!-- Webview Container -->
   <div id="webview-container">
     <!-- Webviews will be dynamically created -->
-  </div>
 
-  <!-- New Tab Page (shown when no URL) -->
-  <div id="new-tab-page" class="hidden">
-    <div id="ntp-content">
-      <div id="ntp-logo">
-        <i class="fas fa-globe"></i>
-        <h1>ChatTarayıcı</h1>
-        <p>Hızlı, eklenti destekli ve otomatik güncellenen web tarayıcınız</p>
-      </div>
-      <div id="ntp-search">
-        <div id="ntp-search-box">
-          <i class="fas fa-search"></i>
-          <input type="text" id="ntp-search-input" placeholder="Google'da ara veya URL gir..."
-            onkeydown="if(event.key==='Enter') searchFromNTP(this.value)" autofocus>
+    <!-- New Tab Page (shown when no URL) -->
+    <div id="new-tab-page" class="hidden">
+      <div id="ntp-content">
+        <div id="ntp-logo">
+          <i class="fas fa-globe"></i>
+          <h1>ChatTarayıcı</h1>
+          <p>Hızlı ve eklenti destekli web tarayıcınız</p>
         </div>
-      </div>
-      <div id="ntp-shortcuts">
-        <div class="shortcut-item" onclick="navigateTo('https://www.google.com')">
-          <div class="shortcut-icon" style="background: linear-gradient(135deg, #4285f4, #34a853);">
-            <i class="fab fa-google"></i>
+        <div id="ntp-search">
+          <div id="ntp-search-box">
+            <i class="fas fa-search"></i>
+            <input type="text" id="ntp-search-input" placeholder="Google'da ara veya URL gir..."
+              onkeydown="if(event.key==='Enter') searchFromNTP(this.value)" autofocus>
           </div>
-          <span>Google</span>
         </div>
-        <div class="shortcut-item" onclick="navigateTo('https://www.youtube.com')">
-          <div class="shortcut-icon" style="background: linear-gradient(135deg, #ff0000, #cc0000);">
-            <i class="fab fa-youtube"></i>
+        <div id="ntp-shortcuts">
+          <div class="shortcut-item" onclick="navigateTo('https://www.google.com')">
+            <div class="shortcut-icon" style="background: linear-gradient(135deg, #4285f4, #34a853);">
+              <i class="fab fa-google"></i>
+            </div>
+            <span>Google</span>
           </div>
-          <span>YouTube</span>
-        </div>
-        <div class="shortcut-item" onclick="navigateTo('https://twitter.com')">
-          <div class="shortcut-icon" style="background: linear-gradient(135deg, #1da1f2, #0d8ecf);">
-            <i class="fab fa-twitter"></i>
+          <div class="shortcut-item" onclick="navigateTo('https://www.youtube.com')">
+            <div class="shortcut-icon" style="background: linear-gradient(135deg, #ff0000, #cc0000);">
+              <i class="fab fa-youtube"></i>
+            </div>
+            <span>YouTube</span>
           </div>
-          <span>Twitter</span>
-        </div>
-        <div class="shortcut-item" onclick="navigateTo('https://www.instagram.com')">
-          <div class="shortcut-icon" style="background: linear-gradient(135deg, #e1306c, #fd1d1d, #f77737);">
-            <i class="fab fa-instagram"></i>
+          <div class="shortcut-item" onclick="navigateTo('https://twitter.com')">
+            <div class="shortcut-icon" style="background: linear-gradient(135deg, #1da1f2, #0d8ecf);">
+              <i class="fab fa-twitter"></i>
+            </div>
+            <span>Twitter</span>
           </div>
-          <span>Instagram</span>
-        </div>
-        <div class="shortcut-item" onclick="navigateTo('https://github.com')">
-          <div class="shortcut-icon" style="background: linear-gradient(135deg, #333, #6e5494);">
-            <i class="fab fa-github"></i>
+          <div class="shortcut-item" onclick="navigateTo('https://www.instagram.com')">
+            <div class="shortcut-icon" style="background: linear-gradient(135deg, #e1306c, #fd1d1d, #f77737);">
+              <i class="fab fa-instagram"></i>
+            </div>
+            <span>Instagram</span>
           </div>
-          <span>GitHub</span>
-        </div>
-        <div class="shortcut-item" onclick="navigateTo('https://www.wikipedia.org')">
-          <div class="shortcut-icon" style="background: linear-gradient(135deg, #636466, #3a3a3c);">
-            <i class="fab fa-wikipedia-w"></i>
+          <div class="shortcut-item" onclick="navigateTo('https://github.com')">
+            <div class="shortcut-icon" style="background: linear-gradient(135deg, #333, #6e5494);">
+              <i class="fab fa-github"></i>
+            </div>
+            <span>GitHub</span>
           </div>
-          <span>Wikipedia</span>
-        </div>
-        <div class="shortcut-item" onclick="navigateTo('https://www.reddit.com')">
-          <div class="shortcut-icon" style="background: linear-gradient(135deg, #ff4500, #ff6834);">
-            <i class="fab fa-reddit-alien"></i>
+          <div class="shortcut-item" onclick="navigateTo('https://www.wikipedia.org')">
+            <div class="shortcut-icon" style="background: linear-gradient(135deg, #636466, #3a3a3c);">
+              <i class="fab fa-wikipedia-w"></i>
+            </div>
+            <span>Wikipedia</span>
           </div>
-          <span>Reddit</span>
-        </div>
-        <div class="shortcut-item" onclick="navigateTo('https://www.linkedin.com')">
-          <div class="shortcut-icon" style="background: linear-gradient(135deg, #0077b5, #005582);">
-            <i class="fab fa-linkedin-in"></i>
+          <div class="shortcut-item" onclick="navigateTo('https://www.reddit.com')">
+            <div class="shortcut-icon" style="background: linear-gradient(135deg, #ff4500, #ff6834);">
+              <i class="fab fa-reddit-alien"></i>
+            </div>
+            <span>Reddit</span>
           </div>
-          <span>LinkedIn</span>
+          <div class="shortcut-item" onclick="navigateTo('https://www.linkedin.com')">
+            <div class="shortcut-icon" style="background: linear-gradient(135deg, #0077b5, #005582);">
+              <i class="fab fa-linkedin-in"></i>
+            </div>
+            <span>LinkedIn</span>
+          </div>
         </div>
       </div>
     </div>

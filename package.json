@@ -5,6 +5,9 @@
   "main": "main.js",
   "author": "omerFlix",
   "license": "MIT",
+  "dependencies": {
+    "extract-zip": "^2.0.1"
+  },
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",

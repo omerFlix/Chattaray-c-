@@ -20,6 +20,53 @@ app.commandLine.appendSwitch('no-sandbox');
 
 let mainWindow;
 
+function prepareExtensionsDirectory() {
+  const writableDir = path.join(app.getPath('userData'), 'extensions');
+  fs.mkdirSync(writableDir, { recursive: true });
+
+  // Seed the writable user directory with bundled extensions once. Existing user
+  // copies and their settings are preserved across installs and app updates.
+  const bundledDir = path.join(__dirname, 'extensions');
+  const bundledExtensionIds = [];
+  if (fs.existsSync(bundledDir) && path.resolve(bundledDir) !== path.resolve(writableDir)) {
+    for (const entry of fs.readdirSync(bundledDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+      bundledExtensionIds.push(entry.name);
+      const source = path.join(bundledDir, entry.name);
+      const destination = path.join(writableDir, entry.name);
+      if (!fs.existsSync(destination)) {
+        try {
+          fs.cpSync(source, destination, { recursive: true, errorOnExist: false, force: false });
+        } catch (e) {
+          console.warn('Could not copy bundled extension:', entry.name, e);
+        }
+      }
+    }
+
+    // Carry forward the old extension enablement file and record all bundled
+    // extensions as known, so previously disabled extensions stay disabled.
+    const bundledState = path.join(bundledDir, '.enabled.json');
+    const writableState = path.join(writableDir, '.enabled.json');
+    if (fs.existsSync(bundledState) && !fs.existsSync(writableState)) {
+      try {
+        const oldState = JSON.parse(fs.readFileSync(bundledState, 'utf-8'));
+        fs.writeFileSync(writableState, JSON.stringify({
+          enabled: Array.isArray(oldState.enabled) ? oldState.enabled : [],
+          known: Array.isArray(oldState.known) ? oldState.known : bundledExtensionIds
+        }, null, 2));
+      } catch (e) {
+        console.warn('Could not migrate extension settings:', e);
+      }
+    }
+  }
+
+  return writableDir;
+}
+
+ipcMain.on('extensions-get-directory', (event) => {
+  event.returnValue = prepareExtensionsDirectory();
+});
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -67,12 +114,6 @@ function createWindow() {
 
   mainWindow.on('unmaximize', () => {
     mainWindow.webContents.send('window-maximized', false);
-  });
-
-  // App restart (updates)
-  ipcMain.on('app-restart', () => {
-    app.relaunch();
-    app.exit(0);
   });
 
   // Open directory dialog for extensions

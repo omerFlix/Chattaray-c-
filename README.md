@@ -1,6 +1,6 @@
 # 🌐 ChatTarayıcı
 
-Chromium (Electron) tabanlı, yüksek performanslı, eklenti (Chrome Extension) destekli ve otomatik güncellenen modern web tarayıcısı.
+Chromium (Electron) tabanlı, eklenti destekli modern web tarayıcısı.
 
 ---
 
@@ -17,8 +17,8 @@ Arkadaşlarınızın hiçbir şey yüklemesine gerek yok! Doğrudan indirip çif
 ## ✨ Özellikler
 
 - 🚀 **Chromium Motoru**: Gerçek web sitelerini yüksek hızda gezin.
-- 🧩 **Eklenti Desteği (Chrome Manifest V2 & V3)**: Kendi eklentilerini doğrudan yükle veya çalıştır (omerFlix MASTER, Karanlık Mod, Not Defteri vb.).
-- 🔄 **Otomatik Güncelleme (Auto-Update)**: Bu depoya kod gönderildiğinde, tarayıcıyı kullanan herkes arka planda otomatik güncellenir.
+- 🧩 **Eklenti Desteği**: Manifest dosyası, içerik betiği ve açılır pencere içeren eklentileri klasörden veya ZIP dosyasından yükle.
+- 🔄 **Güncelleme Denetimi**: Yeni sürüm bilgisini ayarlar ekranından elle denetle. Uygulama dosyaları kendiliğinden değiştirilmez.
 - 🛡️ **Yerleşik Reklam Engelleyici**: Reklamları ve izleyicileri engeller.
 - 📑 **Çoklu Sekme & Gizli Mod**: Sekmeler arası hızlı geçiş, klavye kısayolları.
 - 🔖 **Yer İşaretleri & Geçmiş**: Sayfaları kaydet ve geçmişi yönet.
