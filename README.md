@@ -8,7 +8,7 @@ Chromium (Electron) tabanlı, eklenti destekli modern web tarayıcısı.
 
 Arkadaşlarınızın hiçbir şey yüklemesine gerek yok! Doğrudan indirip çift tıklayarak kurabilirler:
 
-👉 **[⬇️ ChatTarayici-Setup.exe İndir (Doğrudan İndirme Linki)](https://github.com/omerFlix/Chattaray-c-/raw/main/setup/ChatTarayici-Setup.exe)**
+👉 **[⬇️ ChatTarayici'nin son sürümünü indir](https://github.com/omerFlix/Chattaray-c-/releases/latest)**
 
 *(İndirip çift tıklayın, masaüstünüze kısayol eklenir ve tarayıcı anında açılır!)*
 

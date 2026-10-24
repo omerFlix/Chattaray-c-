@@ -1,6 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 class ExtensionManager {
   constructor(extensionsDir) {
     this.extensionsDir = extensionsDir;
@@ -361,6 +370,9 @@ class ExtensionManager {
     const name = ext.manifest.name || ext.id;
     const desc = ext.manifest.description || 'Bu eklenti web siteleri üzerinde çalışır.';
     const ver = ext.manifest.version || '1.0.0';
+    const safeName = escapeHtml(name);
+    const safeDesc = escapeHtml(desc);
+    const safeVersion = escapeHtml(ver);
 
     const defaultHtml = `
       <!DOCTYPE html>
@@ -414,10 +426,10 @@ class ExtensionManager {
       </head>
       <body>
         <div class="header">
-          <span class="title">${name}</span>
-          <span class="tag">v${ver}</span>
+          <span class="title">${safeName}</span>
+          <span class="tag">v${safeVersion}</span>
         </div>
-        <p class="desc">${desc}</p>
+        <p class="desc">${safeDesc}</p>
         <div class="status">
           <span>●</span>
           <span>Eklenti Aktif ve Çalışıyor</span>

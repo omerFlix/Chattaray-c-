@@ -10,8 +10,8 @@ const CentralUpdater = require('./updater');
 let tabs = [];
 let activeTabId = null;
 let tabIdCounter = 0;
-let bookmarks = JSON.parse(localStorage.getItem('bookmarks') || '[]');
-let history = JSON.parse(localStorage.getItem('browsingHistory') || '[]');
+let bookmarks = loadStoredArray('bookmarks');
+let history = loadStoredArray('browsingHistory');
 let zoomLevels = {};
 
 const DEFAULT_HOME = 'about:newtab';
@@ -109,7 +109,7 @@ function createWebview(tabId, url, incognito = false) {
   webview.setAttribute('data-tab', tabId);
   webview.setAttribute('autosize', 'on');
   if (incognito) {
-    webview.setAttribute('partition', `persist:incognito-${tabId}`);
+    webview.setAttribute('partition', 'incognito');
   }
 
   webview.setAttribute('allowpopups', '');
@@ -569,7 +569,9 @@ function renderBookmarks() {
   bookmarks.forEach((bm, index) => {
     const item = document.createElement('div');
     item.className = 'bookmark-item';
-    item.onclick = () => navigateTo(bm.url);
+    if (isSafeNavigationUrl(bm.url)) {
+      item.onclick = () => navigateTo(bm.url);
+    }
     item.oncontextmenu = (e) => {
       e.preventDefault();
       if (confirm(`"${bm.title}" yer işaretini silmek istiyor musun?`)) {
@@ -579,11 +581,20 @@ function renderBookmarks() {
       }
     };
 
-    const favicon = bm.favicon
-      ? `<img src="${bm.favicon}" onerror="this.replaceWith(document.createTextNode('🔖'))">`
-      : '🔖';
+    const faviconUrl = safeFaviconUrl(bm.favicon);
+    if (faviconUrl) {
+      const favicon = document.createElement('img');
+      favicon.src = faviconUrl;
+      favicon.alt = '';
+      favicon.onerror = () => favicon.replaceWith(document.createTextNode('🔖'));
+      item.appendChild(favicon);
+    } else {
+      item.appendChild(document.createTextNode('🔖'));
+    }
 
-    item.innerHTML = `${typeof favicon === 'string' && favicon.startsWith('<') ? favicon : `<span>${favicon}</span>`} <span>${bm.title}</span>`;
+    const title = document.createElement('span');
+    title.textContent = typeof bm.title === 'string' && bm.title ? bm.title : bm.url;
+    item.appendChild(title);
     list.appendChild(item);
   });
 
@@ -602,22 +613,23 @@ function showBookmarksManager() {
   closeMenu();
   let content = '<h2>Yer İşaretleri</h2><ul>';
   bookmarks.forEach(bm => {
-    content += `<li><a href="${bm.url}">${bm.title}</a></li>`;
+    const title = escapeHtml(typeof bm.title === 'string' && bm.title ? bm.title : bm.url);
+    const url = safeWebUrl(bm.url);
+    content += `<li>${url ? `<a href="${escapeHtml(url)}">${title}</a>` : title}</li>`;
   });
   content += '</ul>';
 
   const webview = getActiveWebview();
   if (webview) {
-    webview.loadURL(`data:text/html;charset=utf-8,
-      <html><head><style>
+    const html = `<html><head><meta charset="utf-8"><style>
         body { font-family: Inter, sans-serif; background: #0f0f1a; color: #e8e8f0; padding: 40px; }
         h2 { color: #6c63ff; margin-bottom: 20px; }
         ul { list-style: none; padding: 0; }
         li { padding: 12px 16px; border-bottom: 1px solid rgba(108,99,255,0.15); }
         a { color: #a855f7; text-decoration: none; }
         a:hover { text-decoration: underline; }
-      </style></head><body>${content}</body></html>
-    `);
+      </style></head><body>${content}</body></html>`;
+    webview.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   }
 }
 
@@ -644,12 +656,13 @@ function showHistory() {
   let content = '<h2>Tarayıcı Geçmişi</h2><ul>';
   history.slice(0, 100).forEach(h => {
     const date = new Date(h.visitedAt).toLocaleString('tr-TR');
-    content += `<li><a href="${h.url}">${h.title}</a><span class="date">${date}</span></li>`;
+    const title = escapeHtml(typeof h.title === 'string' && h.title ? h.title : h.url);
+    const url = safeWebUrl(h.url);
+    content += `<li>${url ? `<a href="${escapeHtml(url)}">${title}</a>` : `<span>${title}</span>`}<span class="date">${escapeHtml(date)}</span></li>`;
   });
   content += '</ul>';
 
-  navigateTo(`data:text/html;charset=utf-8,
-    <html><head><style>
+  const html = `<html><head><meta charset="utf-8"><style>
       body { font-family: Inter, sans-serif; background: #0f0f1a; color: #e8e8f0; padding: 40px; max-width: 800px; margin: 0 auto; }
       h2 { color: #6c63ff; margin-bottom: 20px; font-size: 24px; }
       ul { list-style: none; padding: 0; }
@@ -657,8 +670,8 @@ function showHistory() {
       a { color: #a855f7; text-decoration: none; flex: 1; }
       a:hover { text-decoration: underline; }
       .date { color: #6b7280; font-size: 12px; flex-shrink: 0; margin-left: 16px; }
-    </style></head><body>${content}</body></html>
-  `);
+    </style></head><body>${content}</body></html>`;
+  navigateTo(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 }
 
 // ===== Developer Tools =====
@@ -1147,6 +1160,47 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+function loadStoredArray(key) {
+  try {
+    const value = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(value)
+      ? value.filter(entry => entry && typeof entry === 'object' && !Array.isArray(entry) && typeof entry.url === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function safeWebUrl(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function safeFaviconUrl(value) {
+  if (typeof value !== 'string') return null;
+  try {
+    const url = new URL(value);
+    return ['http:', 'https:', 'file:'].includes(url.protocol) ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function isSafeNavigationUrl(value) {
+  if (typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    return ['http:', 'https:', 'file:'].includes(url.protocol) || /^about:(blank|newtab)$/i.test(value);
+  } catch {
+    return false;
+  }
+}
+
 // ===== Keyboard Shortcuts =====
 document.addEventListener('keydown', (e) => {
   // Ctrl+T - New tab
@@ -1212,7 +1266,7 @@ document.addEventListener('keydown', (e) => {
   }
 
   // Ctrl+Tab - Next tab
-  if (e.ctrlKey && e.key === 'Tab') {
+  if (e.ctrlKey && !e.shiftKey && e.key === 'Tab' && tabs.length > 1) {
     e.preventDefault();
     const currentIndex = tabs.findIndex(t => t.id === activeTabId);
     const nextIndex = (currentIndex + 1) % tabs.length;
@@ -1220,7 +1274,7 @@ document.addEventListener('keydown', (e) => {
   }
 
   // Ctrl+Shift+Tab - Previous tab
-  if (e.ctrlKey && e.shiftKey && e.key === 'Tab') {
+  if (e.ctrlKey && e.shiftKey && e.key === 'Tab' && tabs.length > 1) {
     e.preventDefault();
     const currentIndex = tabs.findIndex(t => t.id === activeTabId);
     const prevIndex = (currentIndex - 1 + tabs.length) % tabs.length;
