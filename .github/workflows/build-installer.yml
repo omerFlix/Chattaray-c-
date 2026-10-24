@@ -42,7 +42,7 @@ jobs:
           "exists=$($exists.ToString().ToLower())" >> $env:GITHUB_OUTPUT
 
       - name: Build Windows Setup (.exe) & Portable
-        run: npm run dist
+        run: npm run dist -- --publish never
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
