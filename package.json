@@ -1,23 +1,51 @@
 {
   "name": "chat-tarayici",
   "version": "1.0.0",
-  "description": "Modern Web Tarayıcı - Electron Tabanlı",
+  "description": "ChatTarayıcı - Modern Web Tarayıcısı",
   "main": "main.js",
+  "author": "omerFlix",
+  "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --dev"
+    "dev": "electron . --dev",
+    "dist": "electron-builder --win",
+    "dist:setup": "electron-builder --win nsis",
+    "dist:portable": "electron-builder --win portable"
   },
-  "keywords": [
-    "browser",
-    "electron",
-    "web"
-  ],
-  "author": "ChatTarayıcı",
-  "license": "MIT",
+  "build": {
+    "appId": "com.omerflix.chattarayici",
+    "productName": "ChatTarayici",
+    "copyright": "Copyright © 2026 omerFlix",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ChatTarayici"
+    },
+    "files": [
+      "main.js",
+      "renderer.js",
+      "styles.css",
+      "index.html",
+      "extension-manager.js",
+      "updater.js",
+      "update-config.json",
+      "package.json",
+      "extensions/**/*"
+    ]
+  },
   "devDependencies": {
-    "electron": "^28.0.0"
-  },
-  "allowScripts": {
-    "electron@28.3.3": true
+    "electron": "^28.0.0",
+    "electron-builder": "^24.13.3"
   }
 }

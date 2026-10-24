@@ -1,0 +1,50 @@
+name: Build Windows Setup Installer
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Windows Setup (.exe) & Portable
+        run: npm run dist
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChatTarayici-Windows-Executables
+          path: dist/*.exe
+
+      - name: Publish GitHub Release with Setup.exe
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        with:
+          name: ChatTarayıcı Son Sürüm Kurulum
+          tag_name: v1.0.0
+          files: dist/*.exe
+          body: |
+            ## 🚀 ChatTarayıcı Kurulum Dosyaları
+
+            Arkadaşlarınızın Node.js veya npm kurmasına gerek yok!
+            Aşağıdaki `.exe` dosyasını indirip çift tıklayarak kurabilirler:
+
+            - **ChatTarayici Setup 1.0.0.exe**: Standart Windows Kurulum Dosyası (Masaüstü kısayolu oluşturur)
+            - **ChatTarayici 1.0.0.exe**: Kurulumsuz Taşınabilir (Portable) Sürüm
