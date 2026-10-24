@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChatTarayıcı</title>
+  <link rel="stylesheet" href="styles.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+  <!-- Title Bar -->
+  <div id="titlebar">
+    <div id="titlebar-drag">
+      <div id="app-icon">
+        <i class="fas fa-globe"></i>
+      </div>
+      <span id="app-title">ChatTarayıcı</span>
+    </div>
+    <div id="window-controls">
+      <button id="btn-minimize" class="window-btn" onclick="windowAction('minimize')">
+        <i class="fas fa-minus"></i>
+      </button>
+      <button id="btn-maximize" class="window-btn" onclick="windowAction('maximize')">
+        <i class="far fa-square"></i>
+      </button>
+      <button id="btn-close" class="window-btn close-btn" onclick="windowAction('close')">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Tab Bar -->
+  <div id="tab-bar">
+    <div id="tabs-container">
+      <!-- Tabs will be dynamically generated -->
+    </div>
+    <button id="new-tab-btn" onclick="createNewTab()" title="Yeni Sekme (Ctrl+T)">
+      <i class="fas fa-plus"></i>
+    </button>
+  </div>
+
+  <!-- Navigation Bar -->
+  <div id="nav-bar">
+    <div id="nav-buttons">
+      <button id="btn-back" class="nav-btn" onclick="goBack()" title="Geri (Alt+Sol)">
+        <i class="fas fa-arrow-left"></i>
+      </button>
+      <button id="btn-forward" class="nav-btn" onclick="goForward()" title="İleri (Alt+Sağ)">
+        <i class="fas fa-arrow-right"></i>
+      </button>
+      <button id="btn-refresh" class="nav-btn" onclick="refreshPage()" title="Yenile (F5)">
+        <i class="fas fa-rotate-right"></i>
+      </button>
+      <button id="btn-home" class="nav-btn" onclick="goHome()" title="Ana Sayfa">
+        <i class="fas fa-house"></i>
+      </button>
+    </div>
+
+    <div id="url-bar-container">
+      <div id="security-icon">
+        <i class="fas fa-lock" id="lock-icon"></i>
+      </div>
+      <input type="text" id="url-input" placeholder="Ara veya URL gir..." spellcheck="false"
+        onkeydown="if(event.key==='Enter') navigateTo(this.value)">
+      <button id="btn-go" onclick="navigateTo(document.getElementById('url-input').value)">
+        <i class="fas fa-arrow-right"></i>
+      </button>
+    </div>
+
+    <div id="nav-actions">
+      <!-- Dynamic Extension Icons Bar -->
+      <div id="active-extensions-bar"></div>
+
+      <!-- Extensions Button (Opens Chrome-style quick extensions menu) -->
+      <button class="nav-btn" id="extensions-btn" onclick="toggleExtensionsDropdown()" title="Eklentiler">
+        <i class="fas fa-puzzle-piece"></i>
+      </button>
+
+      <!-- Central Updates Button -->
+      <button class="nav-btn" id="sync-btn" onclick="toggleUpdatesModal()" title="Otomatik Güncellemeler">
+        <i class="fas fa-cloud-arrow-down"></i>
+        <span id="sync-badge" class="badge-dot hidden"></span>
+      </button>
+
+      <!-- Bookmark Button -->
+      <button class="nav-btn" onclick="toggleBookmark()" title="Yer İşareti Ekle">
+        <i class="far fa-star" id="bookmark-icon"></i>
+      </button>
+
+      <!-- Menu Button -->
+      <button class="nav-btn" id="menu-btn" onclick="toggleMenu()" title="Menü">
+        <i class="fas fa-ellipsis-vertical"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Bookmarks Bar -->
+  <div id="bookmarks-bar">
+    <div id="bookmarks-list">
+      <!-- Bookmarks will be populated dynamically -->
+    </div>
+  </div>
+
+  <!-- Dropdown Menu -->
+  <div id="dropdown-menu" class="hidden">
+    <div class="menu-item" onclick="createNewTab()">
+      <i class="fas fa-plus"></i> Yeni Sekme
+    </div>
+    <div class="menu-item" onclick="createNewTab('about:blank', true)">
+      <i class="fas fa-user-secret"></i> Gizli Sekme
+    </div>
+    <div class="menu-separator"></div>
+    <div class="menu-item" onclick="toggleExtensionsDropdown()">
+      <i class="fas fa-puzzle-piece"></i> Eklentiler (Extensions)
+    </div>
+    <div class="menu-item" onclick="toggleUpdatesModal()">
+      <i class="fas fa-cloud-arrow-down"></i> Güncellemeleri Denetle
+    </div>
+    <div class="menu-separator"></div>
+    <div class="menu-item" onclick="showHistory()">
+      <i class="fas fa-clock-rotate-left"></i> Geçmiş
+    </div>
+    <div class="menu-item" onclick="showBookmarksManager()">
+      <i class="fas fa-bookmark"></i> Yer İşaretleri
+    </div>
+    <div class="menu-separator"></div>
+    <div class="menu-item" onclick="zoomIn()">
+      <i class="fas fa-magnifying-glass-plus"></i> Yakınlaştır
+    </div>
+    <div class="menu-item" onclick="zoomOut()">
+      <i class="fas fa-magnifying-glass-minus"></i> Uzaklaştır
+    </div>
+    <div class="menu-item" onclick="resetZoom()">
+      <i class="fas fa-expand"></i> Sıfırla (%100)
+    </div>
+    <div class="menu-separator"></div>
+    <div class="menu-item" onclick="toggleDevTools()">
+      <i class="fas fa-code"></i> Geliştirici Araçları
+    </div>
+    <div class="menu-item" onclick="showSettings()">
+      <i class="fas fa-gear"></i> Ayarlar
+    </div>
+  </div>
+
+  <!-- Quick Extensions Dropdown (Chrome Style) -->
+  <div id="extensions-dropdown" class="hidden">
+    <div class="ext-dropdown-header">
+      <span><i class="fas fa-puzzle-piece"></i> Eklentiler</span>
+    </div>
+    <div id="ext-dropdown-list">
+      <!-- Dynamically populated with one-click openers -->
+    </div>
+    <div class="menu-separator"></div>
+    <div class="ext-dropdown-footer">
+      <div class="menu-item" onclick="installExtensionFromFolder()">
+        <i class="fas fa-folder-plus"></i> Klasörden Eklenti Yükle
+      </div>
+      <div class="menu-item" onclick="toggleExtensionsModal()">
+        <i class="fas fa-sliders"></i> Eklentileri Yönet
+      </div>
+    </div>
+  </div>
+
+  <!-- Extension Popup Flyout (Floating window for extension popup) -->
+  <div id="extension-popup-container" class="hidden">
+    <div id="extension-popup-header">
+      <span id="extension-popup-title">Eklenti</span>
+      <button class="popup-close-btn" onclick="closeExtensionPopup()"><i class="fas fa-xmark"></i></button>
+    </div>
+    <iframe id="extension-popup-frame" src="about:blank"></iframe>
+  </div>
+
+  <!-- ==================== EKLENTİLER MODALI ==================== -->
+  <div id="extensions-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i class="fas fa-puzzle-piece"></i> Eklenti Yönetimi (Extensions)
+        </div>
+        <button class="modal-close-btn" onclick="toggleExtensionsModal()"><i class="fas fa-xmark"></i></button>
+      </div>
+
+      <div class="modal-actions-bar">
+        <button class="btn-primary" onclick="installExtensionFromFolder()">
+          <i class="fas fa-folder-open"></i> Klasörden Eklenti Yükle
+        </button>
+        <button class="btn-secondary" onclick="installExtensionFromZip()">
+          <i class="fas fa-file-zipper"></i> ZIP Eklenti Yükle
+        </button>
+        <button class="btn-secondary" onclick="openExtensionsFolder()">
+          <i class="fas fa-arrow-up-right-from-square"></i> Eklentiler Klasörü
+        </button>
+      </div>
+
+      <div class="modal-body">
+        <div id="extensions-list" class="extensions-container">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== OTOMATİK GÜNCELLEME MODALI ==================== -->
+  <div id="updates-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="width: 540px;">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i class="fas fa-cloud-arrow-down"></i> Otomatik Güncellemeler
+        </div>
+        <button class="modal-close-btn" onclick="toggleUpdatesModal()"><i class="fas fa-xmark"></i></button>
+      </div>
+
+      <div class="modal-body">
+        <div class="sync-section">
+          <p class="sync-description">
+            Sen projeyi GitHub'a yüklediğinde, bu tarayıcıyı kullanan herkes (arkadaşların dahil) arkada otomatik olarak en son güncellemeleri alır!
+          </p>
+
+          <div class="form-group">
+            <label>Merkezi GitHub Repository (kullanici/repo):</label>
+            <input type="text" id="github-repo-input" placeholder="Örn: o4088/ChatTarayici">
+          </div>
+
+          <div class="form-group">
+            <label>Branch (Dal):</label>
+            <input type="text" id="github-branch-input" placeholder="main" value="main">
+          </div>
+
+          <div style="margin-top: 18px; display:flex; gap:10px;">
+            <button class="btn-primary" onclick="checkCentralUpdateNow()">
+              <i class="fas fa-rotate"></i> Güncellemeleri Şimdi Denetle
+            </button>
+            <button class="btn-secondary" onclick="saveCentralUpdateSettings()">
+              <i class="fas fa-floppy-disk"></i> Ayarları Kaydet
+            </button>
+          </div>
+        </div>
+
+        <div id="update-status-box" class="sync-status-box hidden" style="margin-top: 16px;">
+          <i class="fas fa-info-circle"></i> <span id="update-status-message"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Update Notification Toast -->
+  <div id="update-toast" class="update-toast hidden">
+    <div class="update-toast-content">
+      <i class="fas fa-circle-check toast-icon"></i>
+      <div>
+        <h4>Yeni Güncelleme İndirildi! 🎉</h4>
+        <p id="update-toast-msg">Yeni sürüm dosyaları hazır. Değişiklikleri uygulamak için yeniden başlatın.</p>
+      </div>
+    </div>
+    <div class="update-toast-actions">
+      <button class="btn-restart" onclick="restartBrowser()">Yeniden Başlat</button>
+      <button class="btn-dismiss" onclick="dismissUpdateToast()"><i class="fas fa-xmark"></i></button>
+    </div>
+  </div>
+
+  <!-- Webview Container -->
+  <div id="webview-container">
+    <!-- Webviews will be dynamically created -->
+  </div>
+
+  <!-- New Tab Page (shown when no URL) -->
+  <div id="new-tab-page" class="hidden">
+    <div id="ntp-content">
+      <div id="ntp-logo">
+        <i class="fas fa-globe"></i>
+        <h1>ChatTarayıcı</h1>
+        <p>Hızlı, eklenti destekli ve otomatik güncellenen web tarayıcınız</p>
+      </div>
+      <div id="ntp-search">
+        <div id="ntp-search-box">
+          <i class="fas fa-search"></i>
+          <input type="text" id="ntp-search-input" placeholder="Google'da ara veya URL gir..."
+            onkeydown="if(event.key==='Enter') searchFromNTP(this.value)" autofocus>
+        </div>
+      </div>
+      <div id="ntp-shortcuts">
+        <div class="shortcut-item" onclick="navigateTo('https://www.google.com')">
+          <div class="shortcut-icon" style="background: linear-gradient(135deg, #4285f4, #34a853);">
+            <i class="fab fa-google"></i>
+          </div>
+          <span>Google</span>
+        </div>
+        <div class="shortcut-item" onclick="navigateTo('https://www.youtube.com')">
+          <div class="shortcut-icon" style="background: linear-gradient(135deg, #ff0000, #cc0000);">
+            <i class="fab fa-youtube"></i>
+          </div>
+          <span>YouTube</span>
+        </div>
+        <div class="shortcut-item" onclick="navigateTo('https://twitter.com')">
+          <div class="shortcut-icon" style="background: linear-gradient(135deg, #1da1f2, #0d8ecf);">
+            <i class="fab fa-twitter"></i>
+          </div>
+          <span>Twitter</span>
+        </div>
+        <div class="shortcut-item" onclick="navigateTo('https://www.instagram.com')">
+          <div class="shortcut-icon" style="background: linear-gradient(135deg, #e1306c, #fd1d1d, #f77737);">
+            <i class="fab fa-instagram"></i>
+          </div>
+          <span>Instagram</span>
+        </div>
+        <div class="shortcut-item" onclick="navigateTo('https://github.com')">
+          <div class="shortcut-icon" style="background: linear-gradient(135deg, #333, #6e5494);">
+            <i class="fab fa-github"></i>
+          </div>
+          <span>GitHub</span>
+        </div>
+        <div class="shortcut-item" onclick="navigateTo('https://www.wikipedia.org')">
+          <div class="shortcut-icon" style="background: linear-gradient(135deg, #636466, #3a3a3c);">
+            <i class="fab fa-wikipedia-w"></i>
+          </div>
+          <span>Wikipedia</span>
+        </div>
+        <div class="shortcut-item" onclick="navigateTo('https://www.reddit.com')">
+          <div class="shortcut-icon" style="background: linear-gradient(135deg, #ff4500, #ff6834);">
+            <i class="fab fa-reddit-alien"></i>
+          </div>
+          <span>Reddit</span>
+        </div>
+        <div class="shortcut-item" onclick="navigateTo('https://www.linkedin.com')">
+          <div class="shortcut-icon" style="background: linear-gradient(135deg, #0077b5, #005582);">
+            <i class="fab fa-linkedin-in"></i>
+          </div>
+          <span>LinkedIn</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading indicator -->
+  <div id="loading-bar" class="hidden">
+    <div id="loading-progress"></div>
+  </div>
+
+  <!-- Status Bar -->
+  <div id="status-bar">
+    <span id="status-text">ChatTarayıcı Hazır</span>
+    <span id="zoom-level">%100</span>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

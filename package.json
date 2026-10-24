@@ -1,0 +1,23 @@
+{
+  "name": "chat-tarayici",
+  "version": "1.0.0",
+  "description": "Modern Web Tarayıcı - Electron Tabanlı",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "keywords": [
+    "browser",
+    "electron",
+    "web"
+  ],
+  "author": "ChatTarayıcı",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0"
+  },
+  "allowScripts": {
+    "electron@28.3.3": true
+  }
+}

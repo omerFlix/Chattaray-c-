@@ -1,0 +1,17 @@
+{
+  "id": "karanlik-mod",
+  "name": "Karanlık Mod (Dark Mode Pro)",
+  "version": "1.0.0",
+  "description": "Ziyaret ettiğin tüm web sitelerini koyu ve modern bir gece temasına dönüştürür.",
+  "author": "ChatTarayıcı",
+  "icon": "icon.png",
+  "content_scripts": [
+    {
+      "matches": ["*"],
+      "css": ["dark.css"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "popup": "popup.html"
+}

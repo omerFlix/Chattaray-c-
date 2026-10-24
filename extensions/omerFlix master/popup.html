@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 350px; font-family: 'Segoe UI', sans-serif;
+      background: #0a0a0a; color: #e0e0e0; overflow-x: hidden;
+    }
+    .container { display: flex; flex-direction: column; gap: 12px; padding: 15px; }
+    .header { text-align: center; padding: 10px; border-bottom: 2px solid #ff3e3e; margin-bottom: 10px; }
+    h2 { margin: 0; font-size: 20px; color: #ff3e3e; text-shadow: 0 0 10px rgba(255,62,62,0.3); }
+    .panel { background: #151515; border-radius: 10px; padding: 12px; border: 1px solid #222; }
+    .label-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 12px; font-weight: bold; }
+    .val-text { color: #00ffcc; }
+    input[type="range"] { width: 100%; height: 5px; accent-color: #ff3e3e; cursor: pointer; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    button {
+      padding: 10px; border: 1px solid #333; background: #222; color: #fff;
+      border-radius: 6px; font-size: 11px; cursor: pointer; transition: 0.2s;
+    }
+    button:hover { border-color: #ff3e3e; background: #2a2a2a; }
+    button.active { background: #ff3e3e; border-color: #ff3e3e; box-shadow: 0 0 10px rgba(255,62,62,0.5); }
+    #canvas { width: 100%; height: 60px; background: #000; border-radius: 4px; margin-top: 10px; transition: transform 0.1s; }
+    .footer { font-size: 10px; text-align: center; color: #555; margin-top: 10px; }
+    .device-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 5px; }
+    .device-grid button { font-size: 10px; padding: 6px; border-color: #444; }
+    .device-grid button.active { background: #00ffcc; color: #000; border-color: #00ffcc; box-shadow: 0 0 10px rgba(0,255,204,0.4); }
+    #monsterBtn { grid-column: span 2; background: #4a0000; border: 1px solid #660000; font-weight: bold; font-size: 13px; color: #ff9999; }
+    #monsterBtn.active { background: #ff0000; color: #000; box-shadow: 0 0 20px #ff0000; border-color: #fff; animation: shake 0.2s infinite; }
+    #nukeBtn { grid-column: span 2; background: #2b0033; border: 1px solid #9900cc; font-weight: bold; font-size: 12px; color: #ea80fc; }
+    #nukeBtn.active { background: #d500f9; color: #000; box-shadow: 0 0 25px #d500f9; border-color: #fff; animation: shake 0.1s infinite; }
+    @keyframes shake { 0%{transform:translate(2px,2px)} 50%{transform:translate(-2px,-2px)} 100%{transform:translate(2px,-2px)} }
+
+    /* SEKME */
+    .tab-bar { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 2px solid #ff3e3e; }
+    .tab-btn { padding: 9px 6px; background: #111; color: #666; border: none; cursor: pointer; font-size: 12px; font-weight: bold; transition: 0.2s; }
+    .tab-btn:hover { background: #1a1a1a; color: #aaa; }
+    .tab-btn.active { background: #1a0000; color: #ff3e3e; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* KORUMA */
+    .prot-wrap { padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+    .prot-title { text-align: center; }
+    .prot-title h3 { color: #00ffcc; font-size: 15px; }
+    .prot-title p { color: #444; font-size: 10px; margin-top: 3px; }
+    .stat-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .stat-box { background: #0d1a0d; border: 1px solid #1a3a1a; border-radius: 8px; padding: 10px 4px; text-align: center; }
+    .stat-num { font-size: 24px; font-weight: bold; color: #00ff88; line-height: 1; }
+    .stat-label { font-size: 9px; color: #555; margin-top: 4px; line-height: 1.3; }
+    .toggle-list { display: flex; flex-direction: column; gap: 8px; }
+    .toggle-row { display: flex; justify-content: space-between; align-items: center; background: #0d1a0d; border-radius: 8px; padding: 10px 12px; border: 1px solid #1a3a1a; cursor: pointer; transition: 0.2s; }
+    .toggle-row.off { background: #1a0d0d; border-color: #3a1a1a; }
+    .toggle-row:hover { filter: brightness(1.2); }
+    .t-name { font-size: 12px; font-weight: bold; color: #ddd; }
+    .t-desc { font-size: 10px; color: #555; margin-top: 2px; }
+    .tog-indicator { font-size: 18px; flex-shrink: 0; }
+    #resetStatsBtn { width: 100%; background: #1a1a1a; border-color: #333; font-size: 11px; padding: 9px; }
+    .section-title { font-size: 11px; color: #00ffcc; border-bottom: 1px solid #333; padding-bottom: 2px; margin-top: 8px; text-align: center; font-weight: bold; grid-column: span 2; }
+  </style>
+</head>
+<body>
+
+  <div class="tab-bar">
+    <button class="tab-btn active" id="tabSesBtn">🔊 SES MOTORU</button>
+    <button class="tab-btn" id="tabKorumaBtn">🛡️ KORUMA</button>
+  </div>
+
+  <div class="tab-pane active" id="tabSes">
+    <div class="container">
+      <div class="header"><h2>OMERFLIX MASTER V7.2</h2></div>
+      <canvas id="canvas"></canvas>
+      <div class="panel" style="border-color:#333;">
+        <div class="label-row"><span>CİHAZ MODU</span><span id="deviceText" class="val-text">BİLGİSAYAR</span></div>
+        <div class="device-grid">
+          <button id="pcMode" class="active">💻 PC (YIKIM)</button>
+          <button id="boardMode">🏫 AKILLI TAHTA</button>
+        </div>
+      </div>
+      <button id="monsterBtn">👹 CANAVAR MODU: KAPALI</button>
+      <div class="panel">
+        <div class="label-row"><span>ANA SES (MAX: 1.000.000.000%)</span><span id="vVal" class="val-text">100%</span></div>
+        <input type="range" id="volume" min="0" max="1000000000" value="100">
+      </div>
+      <div class="panel">
+        <div class="label-row"><span>BAS GÜCÜ (BASS)</span><span id="bVal" class="val-text">0dB</span></div>
+        <input type="range" id="bass" min="0" max="35" value="0">
+      </div>
+      <div class="panel">
+        <div class="label-row"><span>TİZ DENGESİ (TREBLE)</span><span id="tVal" class="val-text">0dB</span></div>
+        <input type="range" id="treble" min="-10" max="20" value="0">
+      </div>
+      <div class="grid">
+        <div class="section-title">KLASİK MODLAR</div>
+        <button id="slowBtn">SLOWED &amp; REVERB</button>
+        <button id="karaBtn">KARAOKE MODE</button>
+        <button id="spatialBtn">3D SPATIAL (IMAX)</button>
+        <button id="eightDBtn">8D SES (360° DÖNER)</button>
+        <button id="compressorBtn">NIGHT MODE</button>
+        <button id="monoBtn">MONO MIXER</button>
+
+        <div class="section-title">11 EKSTREM MOD &amp; GÜÇLENDİRİCİ</div>
+        <button id="nukeBtn">☢️ NÜKLEER SES (10.000X BOOST)</button>
+        <button id="underBtn">🌊 SU ALTI</button>
+        <button id="megaBtn">📢 MEGAFON</button>
+        <button id="rapeBtn">🩸 KULAK KANAMASI</button>
+        <button id="concertBtn">🏟️ KONSER</button>
+        <button id="chipBtn">🐿️ HELYUM (HIZLI)</button>
+        <button id="demonBtn">👿 ŞEYTAN SESİ</button>
+        <button id="lofiBtn">📻 ESKİ RADYO</button>
+        <button id="subBtn">🌋 ULTRA SUB-BASS</button>
+        <button id="tremoloBtn">〰️ DALGALI SES</button>
+        <button id="echoBtn">🔊 YANKI (ECHO)</button>
+
+        <button id="resetBtn" style="background:#444;grid-column:span 2;border:1px solid #ff3e3e;font-weight:bold;">AYARLARI SIFIRLA</button>
+      </div>
+      <div class="footer">omerFlix Engine v7.2 - True HRTF 3D &amp; 8D Core</div>
+    </div>
+  </div>
+
+  <div class="tab-pane" id="tabKoruma">
+    <div class="prot-wrap">
+      <div class="prot-title">
+        <h3>🛡️ KORUMA MERKEZİ</h3>
+        <p>Her butona bas açıp kapatabilirsin</p>
+      </div>
+      <div class="stat-row">
+        <div class="stat-box"><div class="stat-num" id="statTrackers">0</div><div class="stat-label">İZLEYİCİ<br>ENGELLENDİ</div></div>
+        <div class="stat-box"><div class="stat-num" id="statAds">0</div><div class="stat-label">REKLAM<br>ENGELLENDİ</div></div>
+        <div class="stat-box"><div class="stat-num" id="statDownloads">0</div><div class="stat-label">TEHLİKELİ<br>İNDİRME</div></div>
+      </div>
+      <div class="toggle-list">
+        <div class="toggle-row" id="rowTrackers">
+          <div><div class="t-name">🚫 İzleyici Engelleme</div><div class="t-desc">Google Analytics, Hotjar, Facebook Pixel</div></div>
+          <span class="tog-indicator" id="indTrackers">✅</span>
+        </div>
+        <div class="toggle-row" id="rowAds">
+          <div><div class="t-name">📺 Reklam Engelleme</div><div class="t-desc">YouTube + tüm siteler, sponsorluk atla</div></div>
+          <span class="tog-indicator" id="indAds">✅</span>
+        </div>
+        <div class="toggle-row" id="rowVirus">
+          <div><div class="t-name">🦠 Virüs Koruması</div><div class="t-desc">.exe .bat .scr .msi vb. engelle</div></div>
+          <span class="tog-indicator" id="indVirus">✅</span>
+        </div>
+        <div class="toggle-row" id="rowSponsor">
+          <div><div class="t-name">🎬 Sponsorluk Atla</div><div class="t-desc">YouTube intro/outro/sponsor otomatik</div></div>
+          <span class="tog-indicator" id="indSponsor">✅</span>
+        </div>
+      </div>
+      <button id="resetStatsBtn">🗑️ İstatistikleri Sıfırla</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

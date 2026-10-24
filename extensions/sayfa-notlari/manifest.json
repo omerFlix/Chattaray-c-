@@ -1,0 +1,9 @@
+{
+  "id": "sayfa-notlari",
+  "name": "Hızlı Not Defteri",
+  "version": "1.0.0",
+  "description": "Gezindiğin sitelerde anlık notlar almanı ve saklamanı sağlayan pratik not eklentisi.",
+  "author": "ChatTarayıcı",
+  "icon": "icon.png",
+  "popup": "popup.html"
+}
