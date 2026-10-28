@@ -6,14 +6,18 @@
   "author": "omerFlix",
   "license": "MIT",
   "dependencies": {
-    "extract-zip": "^2.0.1"
+    "extract-zip": "^2.0.1",
+    "sql.js": "^1.15.2"
   },
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
     "dist": "electron-builder --win",
     "dist:setup": "electron-builder --win nsis",
-    "dist:portable": "electron-builder --win portable"
+    "dist:portable": "electron-builder --win portable",
+    "dist:deb": "electron-builder --linux dir && node scripts/build-deb.js",
+    "dist:linux": "electron-builder --linux tar.gz && node scripts/build-deb.js",
+    "dist:all": "electron-builder --win && npm run dist:deb"
   },
   "build": {
     "appId": "com.omerflix.chattarayici",
@@ -26,6 +30,29 @@
       "target": [
         "nsis",
         "portable"
+      ]
+    },
+    "linux": {
+      "target": [
+        "deb",
+        "AppImage"
+      ],
+      "category": "Network",
+      "maintainer": "omerFlix",
+      "executableName": "chat-tarayici",
+      "synopsis": "ChatTarayıcı - Modern Web Tarayıcısı",
+      "description": "ChatTarayıcı - Pardus ETAP ve Linux için Eklenti Destekli Modern Web Tarayıcısı",
+      "icon": "icon.png"
+    },
+    "deb": {
+      "priority": "optional",
+      "depends": [
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libasound2",
+        "libsecret-1-0",
+        "xdg-utils"
       ]
     },
     "nsis": {
@@ -41,7 +68,10 @@
       "renderer.js",
       "styles.css",
       "index.html",
+      "icon.png",
       "extension-manager.js",
+      "chrome-importer.js",
+      "password-manager.js",
       "updater.js",
       "update-config.json",
       "package.json",

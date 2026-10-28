@@ -7,6 +7,39 @@ const https = require('https');
 const net = require('net');
 const { spawn } = require('child_process');
 const CentralUpdater = require('./updater');
+const ChromeImporter = require('./chrome-importer');
+const PasswordManager = require('./password-manager');
+
+let passwordManager = null;
+
+function getBrowserSettings() {
+  const settingsPath = path.join(app.getPath('userData'), 'browser-settings.json');
+  try {
+    if (fs.existsSync(settingsPath)) {
+      return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    }
+  } catch {}
+  return {
+    searchEngine: 'https://www.google.com/search?q=',
+    homepage: 'about:newtab',
+    showBookmarksBar: true,
+    downloadPath: app.getPath('downloads'),
+    promptSavePasswords: true,
+    autoFillPasswords: true
+  };
+}
+
+function saveBrowserSettings(settings) {
+  const settingsPath = path.join(app.getPath('userData'), 'browser-settings.json');
+  try {
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2), 'utf8');
+    return true;
+  } catch (e) {
+    console.warn('Could not save browser settings:', e);
+    return false;
+  }
+}
 
 // Isolate cache and userData outside OneDrive to prevent Windows lock (0x5 Access Denied)
 const cleanUserData = path.join(os.homedir(), '.chattarayici-data');
@@ -19,9 +52,15 @@ try {
   console.warn('Could not set custom userData path:', e);
 }
 
-// Disable problematic disk caches on Windows
+// Pardus ETAP Akıllı Tahta & Windows performans ve kararlılık ayarları
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 app.commandLine.appendSwitch('no-sandbox');
+app.commandLine.appendSwitch('touch-events', 'enabled');
+app.commandLine.appendSwitch('enable-features', 'TouchEvents,OverlayScrollbar');
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('disable-features', 'AudioServiceSandbox');
+}
 
 let mainWindow;
 let extensionsDirectory = null;
@@ -100,10 +139,18 @@ const chromeExtensionCandidates = new Map();
 
 function scanChromeInstalledExtensions() {
   chromeExtensionCandidates.clear();
-  if (process.platform !== 'win32') return [];
-
-  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
-  const chromeUserData = path.join(localAppData, 'Google', 'Chrome', 'User Data');
+  let chromeUserData;
+  if (process.platform === 'win32') {
+    const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local');
+    chromeUserData = path.join(localAppData, 'Google', 'Chrome', 'User Data');
+  } else if (process.platform === 'linux') {
+    chromeUserData = path.join(os.homedir(), '.config', 'google-chrome');
+    if (!fs.existsSync(chromeUserData)) {
+      chromeUserData = path.join(os.homedir(), '.config', 'chromium');
+    }
+  } else {
+    return [];
+  }
   let profiles = [];
   try {
     profiles = fs.readdirSync(chromeUserData, { withFileTypes: true })
@@ -502,20 +549,33 @@ function setupContentBlocking(targetSession) {
   targetSession.webRequest.onBeforeRequest(
     { urls: ['http://*/*', 'https://*/*'] },
     (details, callback) => {
-      let adultBlocked = false;
+      let cancel = false;
       try {
-        const hostname = new URL(details.url).hostname;
-        adultBlocked = adultProtectionEnabled && matchesBlockedDomain(hostname, adultBlockDomains);
-      } catch {}
+        let adultBlocked = false;
+        try {
+          const hostname = new URL(details.url).hostname;
+          adultBlocked = adultProtectionEnabled && matchesBlockedDomain(hostname, adultBlockDomains);
+        } catch {}
 
-      const adBlocked = shouldBlockAd(details.url);
-      if (adultBlocked && details.resourceType === 'mainFrame' && mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('adult-site-blocked', {
-          webContentsId: details.webContentsId,
-          url: details.url
-        });
+        let adBlocked = false;
+        try {
+          adBlocked = shouldBlockAd(details.url);
+        } catch {}
+
+        if (adultBlocked && details.resourceType === 'mainFrame' && mainWindow && !mainWindow.isDestroyed()) {
+          try {
+            mainWindow.webContents.send('adult-site-blocked', {
+              webContentsId: details.webContentsId,
+              url: details.url
+            });
+          } catch {}
+        }
+        cancel = Boolean(adultBlocked || adBlocked);
+      } catch (err) {
+        cancel = false;
+      } finally {
+        callback({ cancel });
       }
-      callback({ cancel: adultBlocked || adBlocked });
     }
   );
 }
@@ -761,6 +821,21 @@ function sendUpdaterStatus(message, isError = false) {
 function startUpdateInstaller(installerPath) {
   return new Promise((resolve, reject) => {
     if (process.platform !== 'win32') {
+      if (installerPath.endsWith('.deb')) {
+        const opener = spawn('xdg-open', [installerPath], { detached: true, stdio: 'ignore' });
+        opener.once('error', (err) => console.warn('xdg-open error:', err));
+        opener.once('spawn', () => {
+          opener.unref();
+          setTimeout(() => app.quit(), 1200);
+          resolve();
+        });
+        return;
+      }
+
+      try {
+        fs.chmodSync(installerPath, 0o755);
+      } catch {}
+
       const installer = spawn(installerPath, [], { detached: true, stdio: 'ignore' });
       installer.once('error', reject);
       installer.once('spawn', () => {
@@ -897,9 +972,172 @@ function createWindow() {
     });
     return result.canceled ? null : result.filePaths[0];
   });
+
+  // Genel dosya açma ve kaydetme diyalogları (CSV, HTML içe/dışa aktarım)
+  ipcMain.handle('dialog-open-file', async (_e, options = {}) => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: options.title || 'Dosya Seç',
+      filters: options.filters || [],
+      properties: ['openFile']
+    });
+    if (result.canceled || !result.filePaths || !result.filePaths[0]) return null;
+    try {
+      return {
+        path: result.filePaths[0],
+        content: fs.readFileSync(result.filePaths[0], 'utf8')
+      };
+    } catch (e) {
+      return { error: e.message };
+    }
+  });
+
+  ipcMain.handle('dialog-save-file', async (_e, options = {}) => {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: options.title || 'Dosyayı Kaydet',
+      defaultPath: options.defaultPath || 'passwords.csv',
+      filters: options.filters || []
+    });
+    if (result.canceled || !result.filePath) return false;
+    try {
+      fs.writeFileSync(result.filePath, options.content || '', 'utf8');
+      return true;
+    } catch (e) {
+      return false;
+    }
+  });
+
+  // Chrome & Chromium Veri İçe Aktarma IPC İşleyicileri
+  ipcMain.handle('chrome-get-browser-dirs', () => ChromeImporter.getChromeUserDataDirs());
+  ipcMain.handle('chrome-get-profiles', (_e, browserDir) => ChromeImporter.getProfiles(browserDir));
+
+  ipcMain.handle('chrome-import-data', async (_e, { browserDir, profileId, options }) => {
+    if (!passwordManager) passwordManager = new PasswordManager(path.join(app.getPath('userData'), 'passwords.json'));
+    const profilePath = path.join(browserDir, profileId);
+    const summary = {
+      bookmarks: [],
+      history: [],
+      passwordsCount: 0,
+      settings: null
+    };
+
+    if (options.importBookmarks) {
+      summary.bookmarks = ChromeImporter.importBookmarks(profilePath);
+    }
+
+    if (options.importHistory) {
+      summary.history = await ChromeImporter.importHistory(profilePath, 500);
+    }
+
+    if (options.importPasswords) {
+      const masterKey = ChromeImporter.getWindowsMasterKey(browserDir);
+      const passwords = await ChromeImporter.importPasswords(profilePath, masterKey);
+      if (passwords.length > 0) {
+        const res = passwordManager.importBatch(passwords);
+        summary.passwordsCount = res.added + res.updated;
+      }
+    }
+
+    if (options.importSettings) {
+      summary.settings = ChromeImporter.importSettings(profilePath);
+      if (summary.settings) {
+        const curSettings = getBrowserSettings();
+        if (summary.settings.searchEngine) curSettings.searchEngine = summary.settings.searchEngine;
+        if (summary.settings.homepage && summary.settings.homepage !== 'about:newtab') curSettings.homepage = summary.settings.homepage;
+        if (summary.settings.downloadPath) curSettings.downloadPath = summary.settings.downloadPath;
+        saveBrowserSettings(curSettings);
+      }
+    }
+
+    return summary;
+  });
+
+  ipcMain.handle('chrome-import-passwords-csv', (_e, csvContent) => {
+    if (!passwordManager) passwordManager = new PasswordManager(path.join(app.getPath('userData'), 'passwords.json'));
+    const entries = ChromeImporter.parsePasswordsCsv(csvContent);
+    return passwordManager.importBatch(entries);
+  });
+
+  ipcMain.handle('chrome-import-bookmarks-html', (_e, htmlContent) => {
+    return ChromeImporter.parseBookmarksHtml(htmlContent);
+  });
+
+  // Şifre Yöneticisi IPC İşleyicileri
+  ipcMain.handle('passwords-get-all', () => {
+    if (!passwordManager) passwordManager = new PasswordManager(path.join(app.getPath('userData'), 'passwords.json'));
+    return passwordManager.getAll();
+  });
+
+  ipcMain.handle('passwords-save', (_e, entry) => {
+    if (!passwordManager) passwordManager = new PasswordManager(path.join(app.getPath('userData'), 'passwords.json'));
+    return passwordManager.add(entry);
+  });
+
+  ipcMain.handle('passwords-delete', (_e, id) => {
+    if (!passwordManager) passwordManager = new PasswordManager(path.join(app.getPath('userData'), 'passwords.json'));
+    return passwordManager.delete(id);
+  });
+
+  ipcMain.handle('passwords-export-csv', () => {
+    if (!passwordManager) passwordManager = new PasswordManager(path.join(app.getPath('userData'), 'passwords.json'));
+    return passwordManager.exportCsv();
+  });
+
+  ipcMain.handle('passwords-find-for-url', (_e, url) => {
+    if (!passwordManager) passwordManager = new PasswordManager(path.join(app.getPath('userData'), 'passwords.json'));
+    return passwordManager.findByUrl(url);
+  });
+
+  // Tarayıcı Ayarları IPC İşleyicileri
+  ipcMain.handle('browser-settings-get', () => getBrowserSettings());
+  ipcMain.handle('browser-settings-save', (_e, newSettings) => {
+    const ok = saveBrowserSettings(newSettings);
+    return { ok, settings: getBrowserSettings() };
+  });
 }
 
 app.whenReady().then(() => {
+  passwordManager = new PasswordManager(path.join(app.getPath('userData'), 'passwords.json'));
+  // Google, Cloudflare, EBA, WhatsApp gibi sitelerin Electron/bot engeline takılmaması için temiz User-Agent
+  try {
+    const defaultUserAgent = session.defaultSession.getUserAgent();
+    const cleanUserAgent = defaultUserAgent
+      .replace(/Electron\/\S+\s*/gi, '')
+      .replace(/ChatTarayici\/\S+\s*/gi, '')
+      .trim();
+    app.userAgentFallback = cleanUserAgent;
+    session.defaultSession.setUserAgent(cleanUserAgent);
+    try {
+      session.fromPartition('incognito').setUserAgent(cleanUserAgent);
+    } catch {}
+  } catch (e) {
+    console.warn('Could not set clean user agent:', e);
+  }
+
+  // Pardus ETAP / MEB Fatih ağı ve okul ortamlarında MEB kök sertifikası veya
+  // yerel sertifika sorunları nedeniyle sitelerin açılmamasını/donmasını önle
+  app.on('certificate-error', (event, _webContents, _url, _error, _certificate, callback) => {
+    event.preventDefault();
+    callback(true);
+  });
+
+  // Yeni pencere / popup isteklerini sekmelere yönlendir ve kilitlenmeleri önle
+  app.on('web-contents-created', (_event, contents) => {
+    contents.setWindowOpenHandler((details) => {
+      if (details.url && details.url !== 'about:blank' && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('open-in-new-tab', details.url);
+      }
+      return { action: 'deny' };
+    });
+
+    contents.on('render-process-gone', (_e, details) => {
+      console.warn('WebContents process gone:', details ? details.reason : 'unknown');
+    });
+
+    contents.on('unresponsive', () => {
+      console.warn('WebContents became unresponsive');
+    });
+  });
+
   initializeContentProtection();
   loadEnabledNativeExtensions().then(() => {
     createWindow();

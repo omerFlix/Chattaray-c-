@@ -87,15 +87,27 @@ class CentralUpdater {
         return true;
       }
 
-      const installerAsset = Array.isArray(release.assets)
-        ? release.assets.find(asset => /setup.*\.exe$/i.test(asset.name || ''))
-        : null;
-      if (!installerAsset || !installerAsset.browser_download_url) {
-        throw new Error('GitHub Release içinde Windows Setup .exe dosyası bulunamadı.');
+      let installerAsset = null;
+      if (process.platform === 'win32') {
+        installerAsset = Array.isArray(release.assets)
+          ? release.assets.find(asset => /setup.*\.exe$/i.test(asset.name || '') || /\.exe$/i.test(asset.name || ''))
+          : null;
+        if (!installerAsset || !installerAsset.browser_download_url) {
+          throw new Error('GitHub Release içinde Windows Setup .exe dosyası bulunamadı.');
+        }
+      } else if (process.platform === 'linux') {
+        installerAsset = Array.isArray(release.assets)
+          ? release.assets.find(asset => /\.deb$/i.test(asset.name || '') || /\.AppImage$/i.test(asset.name || '') || /\.tar\.gz$/i.test(asset.name || ''))
+          : null;
+        if (!installerAsset || !installerAsset.browser_download_url) {
+          throw new Error('GitHub Release içinde Linux (.deb / .AppImage) paketi bulunamadı.');
+        }
+      } else {
+        throw new Error('Bu işletim sistemi için otomatik güncelleme desteklenmiyor.');
       }
 
       const installerPath = await this.downloadInstaller(installerAsset, remoteVersion);
-      if (!this.onInstall) throw new Error('Windows kurulumunu başlatacak işlem ayarlanmamış.');
+      if (!this.onInstall) throw new Error('Güncelleme kurulumunu başlatacak işlem ayarlanmamış.');
 
       if (this.onStatus) this.onStatus(`v${remoteVersion} indirildi. Güncelleme kurulumu başlatılıyor...`);
       await this.onInstall(installerPath);

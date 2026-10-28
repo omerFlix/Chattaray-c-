@@ -156,6 +156,16 @@
     <div class="menu-item" onclick="showBookmarksManager()">
       <i class="fas fa-bookmark"></i> Yer İşaretleri
     </div>
+    <div class="menu-item" onclick="toggleBookmarksBar()">
+      <i class="fas fa-table-cells"></i> Yer İşaretleri Çubuğu
+    </div>
+    <div class="menu-separator"></div>
+    <div class="menu-item" onclick="openChromeImportModal()">
+      <i class="fab fa-chrome"></i> Google Verilerini İçe Aktar...
+    </div>
+    <div class="menu-item" onclick="openPasswordManager()">
+      <i class="fas fa-key"></i> Şifre Yöneticisi
+    </div>
     <div class="menu-separator"></div>
     <div class="menu-item" onclick="zoomIn()">
       <i class="fas fa-magnifying-glass-plus"></i> Yakınlaştır
@@ -334,6 +344,308 @@
           <i class="fas fa-info-circle"></i> <span id="update-status-message"></span>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- ==================== GOOGLE CHROME TARZI AYARLAR VE VERİ AKTARIMI MODALI ==================== -->
+  <div id="settings-modal" class="modal-overlay hidden">
+    <div class="modal-card settings-modal-card">
+      <div class="settings-modal-header">
+        <div class="settings-modal-title">
+          <i class="fas fa-gear"></i> Ayarlar
+        </div>
+        <div class="settings-search-box">
+          <i class="fas fa-search"></i>
+          <input type="text" id="settings-search-input" placeholder="Ayarlarda ara..." oninput="filterSettings(this.value)">
+        </div>
+        <button class="modal-close-btn" onclick="closeSettings()"><i class="fas fa-xmark"></i></button>
+      </div>
+
+      <div class="settings-modal-layout">
+        <!-- Sol Menü (Chrome Tarzı Kategori Sekmeleri) -->
+        <div class="settings-sidebar">
+          <button class="settings-nav-btn active" id="snav-chrome-import" onclick="switchSettingsTab('chrome-import')">
+            <i class="fab fa-chrome"></i> Chrome'dan Veri Aktar
+          </button>
+          <button class="settings-nav-btn" id="snav-passwords" onclick="switchSettingsTab('passwords')">
+            <i class="fas fa-key"></i> Şifre Yöneticisi
+          </button>
+          <button class="settings-nav-btn" id="snav-search" onclick="switchSettingsTab('search')">
+            <i class="fas fa-search"></i> Arama Motoru
+          </button>
+          <button class="settings-nav-btn" id="snav-appearance" onclick="switchSettingsTab('appearance')">
+            <i class="fas fa-palette"></i> Görünüm ve Başlangıç
+          </button>
+          <button class="settings-nav-btn" id="snav-privacy" onclick="switchSettingsTab('privacy')">
+            <i class="fas fa-shield-halved"></i> Gizlilik ve Güvenlik
+          </button>
+          <button class="settings-nav-btn" id="snav-about" onclick="switchSettingsTab('about')">
+            <i class="fas fa-circle-info"></i> Hakkında
+          </button>
+        </div>
+
+        <!-- Sağ İçerik Alanı -->
+        <div class="settings-content">
+          <!-- 1. Chrome'dan Veri Aktar -->
+          <div id="settings-tab-chrome-import" class="settings-tab-pane active">
+            <div class="settings-section-card">
+              <h3><i class="fab fa-chrome" style="color:#4285F4;"></i> Google Chrome Verilerini İçe Aktarın</h3>
+              <p class="settings-desc">Chrome'daki yer işaretleri, kayıtlı şifreler, tarama geçmişi ve ayarları tek tıkla ChatTarayıcı'ya taşıyın.</p>
+
+              <div class="settings-form-row">
+                <label for="import-browser-select">Kaynak Tarayıcı:</label>
+                <select id="import-browser-select" onchange="onImportBrowserChange()"></select>
+              </div>
+
+              <div class="settings-form-row">
+                <label for="import-profile-select">Profil Seçin:</label>
+                <select id="import-profile-select"></select>
+              </div>
+
+              <div class="import-checkbox-grid">
+                <label class="import-checkbox-label">
+                  <input type="checkbox" id="import-opt-bookmarks" checked>
+                  <span class="checkbox-custom"></span>
+                  <div class="checkbox-text">
+                    <strong>Yer İşaretleri (Sık Kullanılanlar)</strong>
+                    <small>Klasörler ve kayıtlı sayfalar</small>
+                  </div>
+                </label>
+                <label class="import-checkbox-label">
+                  <input type="checkbox" id="import-opt-passwords" checked>
+                  <span class="checkbox-custom"></span>
+                  <div class="checkbox-text">
+                    <strong>Kayıtlı Şifreler</strong>
+                    <small>Web sitelerindeki hesap giriş bilgileri</small>
+                  </div>
+                </label>
+                <label class="import-checkbox-label">
+                  <input type="checkbox" id="import-opt-history" checked>
+                  <span class="checkbox-custom"></span>
+                  <div class="checkbox-text">
+                    <strong>Tarama Geçmişi</strong>
+                    <small>Son ziyaret edilen web siteleri</small>
+                  </div>
+                </label>
+                <label class="import-checkbox-label">
+                  <input type="checkbox" id="import-opt-settings" checked>
+                  <span class="checkbox-custom"></span>
+                  <div class="checkbox-text">
+                    <strong>Arama Motoru ve Ayarlar</strong>
+                    <small>Varsayılan arama ve başlangıç tercihleri</small>
+                  </div>
+                </label>
+              </div>
+
+              <div style="margin-top: 20px; display:flex; gap:12px; align-items:center;">
+                <button class="btn-primary" id="btn-execute-chrome-import" onclick="executeChromeImport()">
+                  <i class="fab fa-chrome"></i> Google Chrome'dan İçe Aktar
+                </button>
+              </div>
+
+              <div id="import-status-box" class="sync-status-box hidden" style="margin-top: 16px;"></div>
+            </div>
+
+            <div class="settings-section-card" style="margin-top: 20px;">
+              <h3><i class="fas fa-file-import"></i> Dosyadan İçe / Dışa Aktar</h3>
+              <p class="settings-desc">Chrome'dan dışa aktardığınız HTML veya CSV yedek dosyalarını doğrudan yükleyin.</p>
+              <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px;">
+                <button class="btn-secondary" onclick="importPasswordsCsvDialog()">
+                  <i class="fas fa-file-csv"></i> Chrome Şifreleri (CSV) Yükle
+                </button>
+                <button class="btn-secondary" onclick="importBookmarksHtmlDialog()">
+                  <i class="fas fa-file-code"></i> Chrome Yer İşaretleri (HTML) Yükle
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. Şifre Yöneticisi -->
+          <div id="settings-tab-passwords" class="settings-tab-pane">
+            <div class="settings-section-card">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;">
+                <div>
+                  <h3 style="margin:0;"><i class="fas fa-key" style="color:#f59e0b;"></i> Şifre Yöneticisi</h3>
+                  <p class="settings-desc" style="margin:4px 0 0;">Kayıtlı web sitesi giriş bilgileriniz.</p>
+                </div>
+                <div style="display:flex; gap:8px;">
+                  <button class="btn-primary" onclick="openAddPasswordModal()"><i class="fas fa-plus"></i> Şifre Ekle</button>
+                  <button class="btn-secondary" onclick="exportPasswordsCsvDialog()"><i class="fas fa-file-export"></i> CSV Dışa Aktar</button>
+                </div>
+              </div>
+
+              <div class="passwords-controls-row">
+                <div class="search-input-wrapper">
+                  <i class="fas fa-search"></i>
+                  <input type="text" id="passwords-search-input" placeholder="Şifrelerde ara..." oninput="filterPasswordsList(this.value)">
+                </div>
+                <div class="passwords-toggles">
+                  <label class="toggle-label">
+                    <input type="checkbox" id="opt-prompt-save-passwords" onchange="onPasswordSettingChange()">
+                    <span>Şifreleri kaydetmeyi sor</span>
+                  </label>
+                  <label class="toggle-label">
+                    <input type="checkbox" id="opt-autofill-passwords" onchange="onPasswordSettingChange()">
+                    <span>Otomatik doldur</span>
+                  </label>
+                </div>
+              </div>
+
+              <div id="passwords-list-container" class="passwords-list-container">
+                <!-- Javascript will populate password cards -->
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. Arama Motoru -->
+          <div id="settings-tab-search" class="settings-tab-pane">
+            <div class="settings-section-card">
+              <h3><i class="fas fa-search" style="color:#6366f1;"></i> Varsayılan Arama Motoru</h3>
+              <p class="settings-desc">Adres çubuğunda yapılan aramalarda kullanılan motor.</p>
+              <div class="settings-form-row">
+                <label for="search-engine-select">Arama Motoru:</label>
+                <select id="search-engine-select" onchange="onSearchEngineChange(this.value)">
+                  <option value="https://www.google.com/search?q=">Google (Varsayılan)</option>
+                  <option value="https://yandex.com.tr/search/?text=">Yandex</option>
+                  <option value="https://www.bing.com/search?q=">Bing</option>
+                  <option value="https://duckduckgo.com/?q=">DuckDuckGo</option>
+                  <option value="https://www.ecosia.org/search?q=">Ecosia</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. Görünüm ve Başlangıç -->
+          <div id="settings-tab-appearance" class="settings-tab-pane">
+            <div class="settings-section-card">
+              <h3><i class="fas fa-palette" style="color:#ec4899;"></i> Görünüm</h3>
+              <div class="settings-toggle-row">
+                <div>
+                  <strong>Yer İşaretleri Çubuğu</strong>
+                  <p class="settings-desc">Adres çubuğunun altında yer işaretlerini göster (Ctrl+Shift+B)</p>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="toggle-bookmarks-bar-setting" onchange="setBookmarksBarVisible(this.checked)">
+                  <span class="slider round"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="settings-section-card" style="margin-top: 20px;">
+              <h3><i class="fas fa-house" style="color:#10b981;"></i> Başlangıçta</h3>
+              <p class="settings-desc">Tarayıcı açıldığında görüntülenecek sayfa.</p>
+              <div class="radio-group" style="margin-top: 10px;">
+                <label class="radio-label">
+                  <input type="radio" name="startup-page" value="newtab" id="startup-radio-newtab" checked onchange="onStartupSettingChange()">
+                  <span>Yeni Sekme Sayfası (Google Tarzı)</span>
+                </label>
+                <label class="radio-label">
+                  <input type="radio" name="startup-page" value="custom" id="startup-radio-custom" onchange="onStartupSettingChange()">
+                  <span>Belirli bir sayfa aç:</span>
+                </label>
+                <input type="text" id="startup-custom-url" placeholder="https://www.google.com" style="margin-left: 26px; margin-top: 6px; width: 80%;" onchange="onStartupSettingChange()">
+              </div>
+            </div>
+
+            <div class="settings-section-card" style="margin-top: 20px;">
+              <h3><i class="fas fa-download" style="color:#06b6d4;"></i> İndirmeler</h3>
+              <div class="settings-form-row">
+                <label>Varsayılan İndirme Konumu:</label>
+                <input type="text" id="download-path-input" readonly style="flex:1;">
+              </div>
+            </div>
+          </div>
+
+          <!-- 5. Gizlilik ve Güvenlik -->
+          <div id="settings-tab-privacy" class="settings-tab-pane">
+            <div class="settings-section-card">
+              <h3><i class="fas fa-trash-can" style="color:#ef4444;"></i> Tarama Verilerini Temizle</h3>
+              <p class="settings-desc">Geçmişi, çerezleri ve önbelleğe alınmış web sitesi verilerini temizleyin.</p>
+              <div style="margin-top: 14px;">
+                <button class="btn-danger" onclick="clearBrowsingHistory(true)">
+                  <i class="fas fa-trash-can"></i> Tarama Geçmişini Temizle
+                </button>
+              </div>
+            </div>
+
+            <div class="settings-section-card" style="margin-top: 20px;">
+              <h3><i class="fas fa-shield-halved" style="color:#8b5cf6;"></i> Güvenlik ve İçerik Filtreleme</h3>
+              <p class="settings-desc">+18 yetişkin içerik koruması ve reklam engelleyici ayarlarını yönetin.</p>
+              <div style="margin-top: 14px; display:flex; gap:10px;">
+                <button class="btn-secondary" onclick="openAdultProtectionSettings()">
+                  <i class="fas fa-shield-halved"></i> +18 Koruma Ayarları
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 6. Hakkında -->
+          <div id="settings-tab-about" class="settings-tab-pane">
+            <div class="settings-section-card" style="text-align: center; padding: 30px;">
+              <div style="font-size: 48px; color: var(--accent-primary); margin-bottom: 12px;"><i class="fas fa-globe"></i></div>
+              <h2 style="margin: 0 0 6px;">ChatTarayıcı</h2>
+              <p style="color: var(--text-secondary); margin: 0 0 16px;">Sürüm v<span id="settings-app-version">1.0.11</span></p>
+              <p class="settings-desc" style="max-width: 480px; margin: 0 auto 20px;">
+                Chromium motoru, Google Chrome veri entegrasyonu, Pardus ETAP desteği ve ses güçlendirici barındıran modern web tarayıcısı.
+              </p>
+              <button class="btn-primary" onclick="toggleUpdatesModal()">
+                <i class="fas fa-rotate"></i> Güncellemeleri Denetle
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manual Add Password Modal -->
+  <div id="add-password-modal" class="modal-overlay hidden">
+    <div class="modal-card" style="width: 440px;">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fas fa-key"></i> Yeni Şifre Ekle</div>
+        <button class="modal-close-btn" onclick="closeAddPasswordModal()"><i class="fas fa-xmark"></i></button>
+      </div>
+      <div class="modal-body" style="padding: 20px;">
+        <div class="settings-form-row" style="flex-direction: column; align-items: stretch; margin-bottom: 12px;">
+          <label style="margin-bottom: 4px;">Web Sitesi URL veya Adı:</label>
+          <input type="text" id="manual-pass-url" placeholder="https://google.com">
+        </div>
+        <div class="settings-form-row" style="flex-direction: column; align-items: stretch; margin-bottom: 12px;">
+          <label style="margin-bottom: 4px;">Kullanıcı Adı veya E-posta:</label>
+          <input type="text" id="manual-pass-user" placeholder="ornek@gmail.com">
+        </div>
+        <div class="settings-form-row" style="flex-direction: column; align-items: stretch; margin-bottom: 16px;">
+          <label style="margin-bottom: 4px;">Şifre:</label>
+          <input type="password" id="manual-pass-pass" placeholder="••••••••">
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 10px;">
+          <button class="btn-secondary" onclick="closeAddPasswordModal()">İptal</button>
+          <button class="btn-primary" onclick="submitManualPassword()"><i class="fas fa-check"></i> Kaydet</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Google Chrome Tarzı Şifre Kaydetme Bildirimi (Floating Bubble) -->
+  <div id="password-save-prompt" class="password-save-prompt hidden">
+    <div class="pass-prompt-header">
+      <div class="pass-prompt-title">
+        <i class="fas fa-key" style="color: #f59e0b;"></i> Şifre Kaydedilsin mi?
+      </div>
+      <button class="pass-prompt-close" onclick="dismissPasswordPrompt()"><i class="fas fa-xmark"></i></button>
+    </div>
+    <div class="pass-prompt-site" id="pass-prompt-site-name">example.com</div>
+    <div class="pass-prompt-row">
+      <label>Kullanıcı:</label>
+      <input type="text" id="pass-prompt-username" readonly>
+    </div>
+    <div class="pass-prompt-row">
+      <label>Şifre:</label>
+      <input type="password" id="pass-prompt-password" readonly>
+    </div>
+    <div class="pass-prompt-actions">
+      <button class="btn-primary" onclick="confirmSavePassword()"><i class="fas fa-check"></i> Kaydet</button>
+      <button class="btn-secondary" onclick="dismissPasswordPrompt()">Şimdi Değil</button>
     </div>
   </div>
 

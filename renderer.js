@@ -25,7 +25,11 @@ const audioBoostSettingsByTab = new Map();
 let audioBoostApplyTimer = null;
 
 const DEFAULT_HOME = 'about:newtab';
-const SEARCH_ENGINE = 'https://www.google.com/search?q=';
+let currentSearchEngine = 'https://www.google.com/search?q=';
+const cleanUserAgent = navigator.userAgent
+  .replace(/Electron\/\S+\s*/gi, '')
+  .replace(/ChatTarayici\/\S+\s*/gi, '')
+  .trim();
 
 // ===== Extensions & Central Updater =====
 const extensionsDir = ipcRenderer.sendSync('extensions-get-directory');
@@ -144,6 +148,9 @@ function createWebview(tabId, url, incognito = false) {
 
   webview.setAttribute('allowpopups', '');
   webview.setAttribute('disableblinkfeatures', 'AutomationControlled');
+  webview.setAttribute('useragent', cleanUserAgent);
+  webview.setAttribute('nodeintegration', 'off');
+  webview.setAttribute('plugins', 'true');
 
   container.appendChild(webview);
 
@@ -162,6 +169,19 @@ function createWebview(tabId, url, incognito = false) {
   webview.addEventListener('did-finish-load', () => {
     injectExtensionScripts(webview);
     applyAudioBoost(webview);
+    injectPasswordManagerHooks(webview);
+  });
+
+  // Şifre kaydetme bildirimini yakala
+  webview.addEventListener('console-message', (e) => {
+    if (typeof e.message === 'string' && e.message.startsWith('__CHATTARAYICI_SAVE_PASS__:')) {
+      try {
+        const data = JSON.parse(e.message.slice('__CHATTARAYICI_SAVE_PASS__:'.length));
+        if (browserSettings.promptSavePasswords && !incognito) {
+          showPasswordSavePrompt(data.url, data.username, data.password);
+        }
+      } catch {}
+    }
   });
 
   webview.addEventListener('will-navigate', (e) => {
@@ -223,12 +243,37 @@ function createWebview(tabId, url, incognito = false) {
   webview.addEventListener('did-fail-load', (e) => {
     if (e.errorCode !== -3) { // -3 is aborted, ignore
       showLoading(false);
-      setStatusText(`Hata: ${e.errorDescription}`);
+      setStatusText(`Hata: ${e.errorDescription} (${e.errorCode})`);
+      if (e.isMainFrame) {
+        showWebviewErrorPage(webview, tabId, e.validatedURL || url, e.errorDescription, e.errorCode);
+      }
     }
   });
 
+  webview.addEventListener('render-process-gone', (e) => {
+    showLoading(false);
+    const reason = e.details?.reason || 'beklenmedik şekilde kapandı';
+    setStatusText(`⚠️ Sayfa çöktü: ${reason}`);
+    showWebviewErrorPage(webview, tabId, webview.getURL() || url, `Sayfa beklenmedik şekilde çöktü (${reason}).`, '');
+  });
+
+  webview.addEventListener('unresponsive', () => {
+    setStatusText('⚠️ Bu sayfa yanıt vermiyor...');
+  });
+
+  webview.addEventListener('responsive', () => {
+    setStatusText('');
+  });
+
+  webview.addEventListener('plugin-crashed', () => {
+    setStatusText('⚠️ Sayfa eklentisi çöktü');
+  });
+
   webview.addEventListener('new-window', (e) => {
-    createNewTab(e.url);
+    e.preventDefault();
+    if (e.url && e.url !== 'about:blank') {
+      createNewTab(e.url);
+    }
   });
 
   webview.addEventListener('update-target-url', (e) => {
@@ -239,6 +284,109 @@ function createWebview(tabId, url, incognito = false) {
   webview.setAttribute('src', url);
   return webview;
 }
+
+function showWebviewErrorPage(webview, tabId, failedUrl, errorDescription, errorCode) {
+  const isBlocked = blockedPageByWebview.has(webview);
+  if (isBlocked) return;
+
+  const html = `<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0f0f1a;
+      color: #e2e8f0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      text-align: center;
+      padding: 24px;
+    }
+    .error-card {
+      background: #1a1a2e;
+      border: 1px solid #2d2d4a;
+      border-radius: 16px;
+      padding: 36px 28px;
+      max-width: 500px;
+      width: 100%;
+      box-shadow: 0 12px 36px rgba(0,0,0,0.4);
+    }
+    .error-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      line-height: 1;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      color: #f1f5f9;
+    }
+    .desc {
+      font-size: 14px;
+      color: #94a3b8;
+      margin-bottom: 16px;
+      line-height: 1.5;
+    }
+    .url-box {
+      font-size: 12px;
+      color: #64748b;
+      background: #111122;
+      padding: 8px 12px;
+      border-radius: 8px;
+      margin-bottom: 24px;
+      word-break: break-all;
+    }
+    .btn-group {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+    }
+    .btn {
+      background: #6366f1;
+      color: #ffffff;
+      border: none;
+      padding: 10px 22px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn:hover { background: #4f46e5; }
+    .btn-secondary {
+      background: #27273f;
+      color: #cbd5e1;
+    }
+    .btn-secondary:hover { background: #353554; }
+  </style>
+</head>
+<body>
+  <div class="error-card">
+    <div class="error-icon">🌐</div>
+    <h1>Bu siteye ulaşılamıyor</h1>
+    <div class="desc">${escapeHtml(errorDescription || 'Bağlantı zaman aşımına uğradı veya web sitesi yanıt vermedi.')} ${errorCode ? `(${errorCode})` : ''}</div>
+    <div class="url-box">${escapeHtml(failedUrl || '')}</div>
+    <div class="btn-group">
+      <button class="btn" onclick="location.href='${encodeURI(failedUrl)}'">Yeniden Dene</button>
+      <button class="btn btn-secondary" onclick="window.history.back()">Geri Dön</button>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  try {
+    webview.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).catch(() => {});
+  } catch {}
+}
+
+ipcRenderer.on('open-in-new-tab', (_event, newUrl) => {
+  if (newUrl) createNewTab(newUrl);
+});
 
 // ===== SAFE EXTENSION INJECTION =====
 function injectExtensionScripts(webview) {
@@ -571,7 +719,7 @@ function navigateTo(input, internalPage = null) {
   let url = input;
 
   if (!input.includes('.') && !input.startsWith('http') && !input.startsWith('about:') && !input.startsWith('data:')) {
-    url = SEARCH_ENGINE + encodeURIComponent(input);
+    url = currentSearchEngine + encodeURIComponent(input);
   } else if (!input.startsWith('http://') && !input.startsWith('https://') && !input.startsWith('about:') && !input.startsWith('data:')) {
     url = 'https://' + input;
   }
@@ -594,7 +742,7 @@ function navigateTo(input, internalPage = null) {
     webview.classList.add('active');
   } else {
     blockedPageByWebview.delete(webview);
-    webview.loadURL(url);
+    webview.loadURL(url).catch(err => console.warn('Navigation loadURL error:', err));
   }
 
   tab.url = url;
@@ -1032,28 +1180,588 @@ function toggleDevTools() {
   closeMenu();
 }
 
-// ===== Settings =====
-function showSettings() {
+// ===== Google Chrome Tarzı Ayarlar ve Veri Yönetimi =====
+let browserSettings = {
+  searchEngine: 'https://www.google.com/search?q=',
+  homepage: 'about:newtab',
+  showBookmarksBar: true,
+  downloadPath: '',
+  promptSavePasswords: true,
+  autoFillPasswords: true
+};
+
+let allSavedPasswords = [];
+let pendingSavePassword = null;
+let detectedBrowserDirs = [];
+
+async function loadBrowserSettings() {
+  try {
+    const s = await ipcRenderer.invoke('browser-settings-get');
+    if (s) {
+      browserSettings = { ...browserSettings, ...s };
+      currentSearchEngine = browserSettings.searchEngine || currentSearchEngine;
+      applyBrowserSettingsToUI();
+    }
+  } catch (e) {
+    console.warn('Could not load browser settings:', e);
+  }
+}
+
+function applyBrowserSettingsToUI() {
+  const seSelect = document.getElementById('search-engine-select');
+  if (seSelect) seSelect.value = browserSettings.searchEngine || 'https://www.google.com/search?q=';
+
+  const bBarToggle = document.getElementById('toggle-bookmarks-bar-setting');
+  if (bBarToggle) bBarToggle.checked = Boolean(browserSettings.showBookmarksBar);
+
+  const passPromptToggle = document.getElementById('opt-prompt-save-passwords');
+  if (passPromptToggle) passPromptToggle.checked = Boolean(browserSettings.promptSavePasswords);
+
+  const passAutofillToggle = document.getElementById('opt-autofill-passwords');
+  if (passAutofillToggle) passAutofillToggle.checked = Boolean(browserSettings.autoFillPasswords);
+
+  const dlInput = document.getElementById('download-path-input');
+  if (dlInput) dlInput.value = browserSettings.downloadPath || '';
+
+  const startupRadioCustom = document.getElementById('startup-radio-custom');
+  const startupRadioNewtab = document.getElementById('startup-radio-newtab');
+  const startupCustomUrl = document.getElementById('startup-custom-url');
+  if (browserSettings.homepage && browserSettings.homepage !== 'about:newtab') {
+    if (startupRadioCustom) startupRadioCustom.checked = true;
+    if (startupCustomUrl) startupCustomUrl.value = browserSettings.homepage;
+  } else {
+    if (startupRadioNewtab) startupRadioNewtab.checked = true;
+  }
+
+  const verEl = document.getElementById('settings-app-version');
+  if (verEl) verEl.textContent = APP_VERSION;
+
+  setBookmarksBarVisible(browserSettings.showBookmarksBar);
+}
+
+function setBookmarksBarVisible(visible) {
+  const bar = document.getElementById('bookmarks-bar');
+  if (bar) {
+    bar.classList.toggle('hidden', !visible);
+  }
+  browserSettings.showBookmarksBar = Boolean(visible);
+  ipcRenderer.invoke('browser-settings-save', browserSettings).catch(() => {});
+}
+
+function toggleBookmarksBar() {
   closeMenu();
-  navigateTo(`data:text/html;charset=utf-8,
-    <html><head><style>
-      body { font-family: Inter, sans-serif; background: #0f0f1a; color: #e8e8f0; padding: 40px; max-width: 600px; margin: 0 auto; }
-      h2 { color: #6c63ff; margin-bottom: 30px; }
-      .setting { padding: 16px 0; border-bottom: 1px solid rgba(108,99,255,0.15); }
-      .setting label { display: block; font-weight: 500; margin-bottom: 4px; }
-      .setting p { color: #6b7280; font-size: 13px; }
-      .version { margin-top: 40px; color: #6b7280; font-size: 12px; text-align: center; }
-    </style></head><body>
-      <h2>⚙️ Ayarlar</h2>
-      <div class="setting"><label>Sürüm</label><p>ChatTarayıcı v${APP_VERSION}</p></div>
-      <div class="setting"><label>Motor</label><p>Chromium (Electron)</p></div>
-      <div class="setting"><label>Eklenti Desteği</label><p>Chrome eklentileri kısmen desteklenir; Chrome Web Store'daki her eklenti çalışmayabilir.</p></div>
-      <div class="setting"><label>Güncelleme</label><p>Uygulama açılışta GitHub'dan yeni sürümü kontrol eder ve varsa kurulumunu başlatır.</p></div>
-      <div class="setting"><label>Reklam Engelleyici</label><p>Aktif ✅</p></div>
-      <div class="setting"><label>Yetişkin İçerik Koruması</label><p>${adultProtectionState.enabled ? 'Açık ✅' : 'Kapalı'} · Ayarlar menüsünden yönetebilirsin.</p></div>
-      <div class="version">ChatTarayıcı — Modern, hızlı ve tam donanımlı tarayıcınız</div>
-    </body></html>
-  `);
+  const bar = document.getElementById('bookmarks-bar');
+  const isHidden = bar ? bar.classList.contains('hidden') : false;
+  setBookmarksBarVisible(isHidden);
+  const toggle = document.getElementById('toggle-bookmarks-bar-setting');
+  if (toggle) toggle.checked = isHidden;
+}
+
+function openSettings(tabName = 'chrome-import') {
+  closeMenu();
+  const modal = document.getElementById('settings-modal');
+  if (modal) {
+    modal.classList.remove('hidden');
+    switchSettingsTab(tabName);
+    loadBrowserSettings();
+    initChromeImportTab();
+    loadPasswordsList();
+  }
+}
+
+function closeSettings() {
+  const modal = document.getElementById('settings-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+function showSettings() {
+  openSettings('chrome-import');
+}
+
+function openChromeImportModal() {
+  openSettings('chrome-import');
+}
+
+function openPasswordManager() {
+  openSettings('passwords');
+}
+
+function switchSettingsTab(tabName) {
+  document.querySelectorAll('.settings-nav-btn').forEach(btn => btn.classList.remove('active'));
+  document.querySelectorAll('.settings-tab-pane').forEach(pane => pane.classList.remove('active'));
+
+  const navBtn = document.getElementById(`snav-${tabName}`);
+  const tabPane = document.getElementById(`settings-tab-${tabName}`);
+
+  if (navBtn) navBtn.classList.add('active');
+  if (tabPane) tabPane.classList.add('active');
+
+  if (tabName === 'passwords') {
+    loadPasswordsList();
+  } else if (tabName === 'chrome-import') {
+    initChromeImportTab();
+  }
+}
+
+function filterSettings(query) {
+  if (!query || !query.trim()) {
+    document.querySelectorAll('.settings-section-card').forEach(c => c.style.display = '');
+    return;
+  }
+  const q = query.toLowerCase().trim();
+  document.querySelectorAll('.settings-section-card').forEach(card => {
+    const text = card.textContent.toLowerCase();
+    card.style.display = text.includes(q) ? '' : 'none';
+  });
+}
+
+function onSearchEngineChange(val) {
+  currentSearchEngine = val;
+  browserSettings.searchEngine = val;
+  ipcRenderer.invoke('browser-settings-save', browserSettings).catch(() => {});
+  setStatusText('🔍 Arama motoru güncellendi.');
+}
+
+function onStartupSettingChange() {
+  const customRadio = document.getElementById('startup-radio-custom');
+  const customUrlInput = document.getElementById('startup-custom-url');
+  if (customRadio && customRadio.checked) {
+    browserSettings.homepage = (customUrlInput?.value || '').trim() || 'https://www.google.com';
+  } else {
+    browserSettings.homepage = 'about:newtab';
+  }
+  ipcRenderer.invoke('browser-settings-save', browserSettings).catch(() => {});
+}
+
+function onPasswordSettingChange() {
+  const promptCheck = document.getElementById('opt-prompt-save-passwords');
+  const autofillCheck = document.getElementById('opt-autofill-passwords');
+  browserSettings.promptSavePasswords = Boolean(promptCheck?.checked);
+  browserSettings.autoFillPasswords = Boolean(autofillCheck?.checked);
+  ipcRenderer.invoke('browser-settings-save', browserSettings).catch(() => {});
+}
+
+// ===== Chrome Veri İçe Aktarma İşlevleri =====
+async function initChromeImportTab() {
+  const browserSelect = document.getElementById('import-browser-select');
+  if (!browserSelect) return;
+
+  try {
+    detectedBrowserDirs = await ipcRenderer.invoke('chrome-get-browser-dirs');
+    browserSelect.innerHTML = '';
+
+    if (!detectedBrowserDirs || detectedBrowserDirs.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Sistemde yüklü Chrome / Chromium bulunamadı';
+      browserSelect.appendChild(opt);
+      return;
+    }
+
+    for (const b of detectedBrowserDirs) {
+      const opt = document.createElement('option');
+      opt.value = b.path;
+      opt.textContent = b.name;
+      browserSelect.appendChild(opt);
+    }
+
+    onImportBrowserChange();
+  } catch (err) {
+    console.warn('Chrome import init error:', err);
+  }
+}
+
+async function onImportBrowserChange() {
+  const browserSelect = document.getElementById('import-browser-select');
+  const profileSelect = document.getElementById('import-profile-select');
+  if (!browserSelect || !profileSelect) return;
+
+  const browserDir = browserSelect.value;
+  if (!browserDir) {
+    profileSelect.innerHTML = '<option value="">Profil bulunamadı</option>';
+    return;
+  }
+
+  try {
+    const profiles = await ipcRenderer.invoke('chrome-get-profiles', browserDir);
+    profileSelect.innerHTML = '';
+    if (!profiles || profiles.length === 0) {
+      profileSelect.innerHTML = '<option value="Default">Varsayılan Profil</option>';
+      return;
+    }
+    for (const p of profiles) {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name + (p.email ? ` (${p.email})` : '');
+      profileSelect.appendChild(opt);
+    }
+  } catch (e) {
+    profileSelect.innerHTML = '<option value="Default">Varsayılan Profil</option>';
+  }
+}
+
+async function executeChromeImport() {
+  const browserSelect = document.getElementById('import-browser-select');
+  const profileSelect = document.getElementById('import-profile-select');
+  const statusBox = document.getElementById('import-status-box');
+  const btn = document.getElementById('btn-execute-chrome-import');
+
+  if (!browserSelect || !browserSelect.value) {
+    alert('Lütfen yüklü bir tarayıcı seçin.');
+    return;
+  }
+
+  const browserDir = browserSelect.value;
+  const profileId = profileSelect ? profileSelect.value : 'Default';
+
+  const options = {
+    importBookmarks: document.getElementById('import-opt-bookmarks')?.checked ?? true,
+    importPasswords: document.getElementById('import-opt-passwords')?.checked ?? true,
+    importHistory: document.getElementById('import-opt-history')?.checked ?? true,
+    importSettings: document.getElementById('import-opt-settings')?.checked ?? true
+  };
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Aktarılıyor...';
+  statusBox.className = 'sync-status-box';
+  statusBox.style.background = 'rgba(99, 102, 241, 0.15)';
+  statusBox.style.color = '#a5b4fc';
+  statusBox.style.borderColor = 'rgba(99, 102, 241, 0.3)';
+  statusBox.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Google Chrome verileri okunuyor ve aktarılıyor...';
+  statusBox.classList.remove('hidden');
+
+  try {
+    const result = await ipcRenderer.invoke('chrome-import-data', { browserDir, profileId, options });
+
+    let addedBookmarks = 0;
+    if (result.bookmarks && result.bookmarks.length > 0) {
+      for (const bm of result.bookmarks) {
+        if (!bookmarks.some(existing => existing.url === bm.url)) {
+          bookmarks.push({ title: bm.title, url: bm.url });
+          addedBookmarks++;
+        }
+      }
+      localStorage.setItem('bookmarks', JSON.stringify(bookmarks));
+      renderBookmarks();
+    }
+
+    let addedHistory = 0;
+    if (result.history && result.history.length > 0) {
+      for (const h of result.history) {
+        if (!history.some(existing => existing.url === h.url)) {
+          history.unshift(h);
+          addedHistory++;
+        }
+      }
+      history = history.slice(0, 2000);
+      localStorage.setItem('browsingHistory', JSON.stringify(history));
+    }
+
+    if (result.settings) {
+      await loadBrowserSettings();
+    }
+
+    await loadPasswordsList();
+
+    statusBox.style.background = 'rgba(16, 185, 129, 0.15)';
+    statusBox.style.color = '#34d399';
+    statusBox.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+    statusBox.innerHTML = `<i class="fas fa-circle-check"></i> <strong>Google Verileri Başarıyla Aktarıldı!</strong><br>
+      • <strong>${addedBookmarks}</strong> yeni yer işareti eklendi<br>
+      • <strong>${result.passwordsCount || 0}</strong> kayıtlı şifre içe aktarıldı<br>
+      • <strong>${addedHistory}</strong> tarama geçmişi kaydı eklendi.`;
+  } catch (err) {
+    statusBox.style.background = 'rgba(239, 68, 68, 0.15)';
+    statusBox.style.color = '#f87171';
+    statusBox.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+    statusBox.innerHTML = `<i class="fas fa-triangle-exclamation"></i> Aktarım sırasında hata oluştu: ${escapeHtml(err.message)}`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fab fa-chrome"></i> Google Chrome\'dan İçe Aktar';
+  }
+}
+
+async function importPasswordsCsvDialog() {
+  const file = await ipcRenderer.invoke('dialog-open-file', {
+    title: 'Chrome Şifreleri CSV Dosyası Seç',
+    filters: [{ name: 'CSV Dosyaları (*.csv)', extensions: ['csv'] }, { name: 'Tüm Dosyalar', extensions: ['*'] }]
+  });
+  if (!file || !file.content) return;
+
+  try {
+    const res = await ipcRenderer.invoke('chrome-import-passwords-csv', file.content);
+    await loadPasswordsList();
+    alert(`✅ Şifreler Başarıyla İçe Aktarıldı:\n${res.added} yeni şifre eklendi, ${res.updated} şifre güncellendi.\nToplam kayıtlı şifre: ${res.total}`);
+  } catch (e) {
+    alert(`❌ Hata: ${e.message}`);
+  }
+}
+
+async function exportPasswordsCsvDialog() {
+  const csv = await ipcRenderer.invoke('passwords-export-csv');
+  if (!csv || !csv.includes('\n')) {
+    alert('Dışa aktarılacak kayıtlı şifre bulunamadı.');
+    return;
+  }
+  const ok = await ipcRenderer.invoke('dialog-save-file', {
+    title: 'Şifreleri CSV Olarak Kaydet',
+    defaultPath: 'chattarayici-passwords.csv',
+    filters: [{ name: 'CSV Dosyası (*.csv)', extensions: ['csv'] }],
+    content: csv
+  });
+  if (ok) {
+    setStatusText('✅ Şifreler CSV dosyasına dışa aktarıldı.');
+  }
+}
+
+async function importBookmarksHtmlDialog() {
+  const file = await ipcRenderer.invoke('dialog-open-file', {
+    title: 'Chrome Yer İşaretleri HTML Dosyası Seç',
+    filters: [{ name: 'HTML Dosyaları (*.html, *.htm)', extensions: ['html', 'htm'] }]
+  });
+  if (!file || !file.content) return;
+
+  try {
+    const imported = await ipcRenderer.invoke('chrome-import-bookmarks-html', file.content);
+    let added = 0;
+    for (const bm of imported) {
+      if (!bookmarks.some(b => b.url === bm.url)) {
+        bookmarks.push({ title: bm.title, url: bm.url });
+        added++;
+      }
+    }
+    if (added > 0) {
+      localStorage.setItem('bookmarks', JSON.stringify(bookmarks));
+      renderBookmarks();
+    }
+    alert(`✅ Yer İşaretleri Aktarıldı:\n${added} yeni yer işareti eklendi.`);
+  } catch (e) {
+    alert(`❌ Hata: ${e.message}`);
+  }
+}
+
+// ===== Şifre Yöneticisi İşlevleri =====
+async function loadPasswordsList() {
+  try {
+    allSavedPasswords = await ipcRenderer.invoke('passwords-get-all');
+    renderPasswordsList(allSavedPasswords);
+  } catch (e) {
+    console.warn('Could not load passwords:', e);
+  }
+}
+
+function renderPasswordsList(passwords) {
+  const container = document.getElementById('passwords-list-container');
+  if (!container) return;
+
+  if (!passwords || passwords.length === 0) {
+    container.innerHTML = `
+      <div class="passwords-empty-state">
+        <i class="fas fa-key"></i>
+        <p>Henüz kayıtlı şifreniz bulunmuyor.</p>
+        <p style="font-size: 12px; margin-top: 4px;">Google Chrome'dan aktarabilir veya web sitelerine giriş yaparken kaydedebilirsiniz.</p>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = passwords.map(p => {
+    let siteName = p.name || p.url;
+    return `
+      <div class="password-card" data-id="${escapeHtml(p.id)}">
+        <div class="password-info-col">
+          <div class="password-site-icon"><i class="fas fa-globe"></i></div>
+          <div>
+            <div class="password-site-name">${escapeHtml(siteName)}</div>
+            <div class="password-site-url">${escapeHtml(p.url)}</div>
+          </div>
+        </div>
+        <div class="password-user-col" title="${escapeHtml(p.username)}">
+          <i class="far fa-user" style="margin-right:6px; opacity:0.6;"></i>${escapeHtml(p.username)}
+        </div>
+        <div class="password-val-col">
+          <span class="pass-val-text" data-password="${escapeHtml(p.password)}">••••••••</span>
+          <button class="pass-action-btn" onclick="togglePasswordVisibility(this)" title="Şifreyi Göster/Gizle">
+            <i class="far fa-eye"></i>
+          </button>
+        </div>
+        <div class="password-actions-col">
+          <button class="pass-action-btn" onclick="copyPasswordToClipboard('${escapeHtml(p.password)}')" title="Şifreyi Kopyala">
+            <i class="far fa-copy"></i>
+          </button>
+          <button class="pass-action-btn btn-del" onclick="deletePasswordEntry('${escapeHtml(p.id)}')" title="Sil">
+            <i class="far fa-trash-can"></i>
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function togglePasswordVisibility(btn) {
+  const container = btn.closest('.password-val-col');
+  const span = container.querySelector('.pass-val-text');
+  const icon = btn.querySelector('i');
+  const realPass = span.getAttribute('data-password');
+
+  if (span.textContent === '••••••••') {
+    span.textContent = realPass;
+    icon.className = 'far fa-eye-slash';
+  } else {
+    span.textContent = '••••••••';
+    icon.className = 'far fa-eye';
+  }
+}
+
+function copyPasswordToClipboard(pass) {
+  navigator.clipboard.writeText(pass);
+  setStatusText('📋 Şifre panoya kopyalandı.');
+}
+
+async function deletePasswordEntry(id) {
+  if (confirm('Bu şifreyi silmek istediğinizden emin misiniz?')) {
+    await ipcRenderer.invoke('passwords-delete', id);
+    await loadPasswordsList();
+    setStatusText('🗑️ Şifre silindi.');
+  }
+}
+
+function filterPasswordsList(query) {
+  if (!query || !query.trim()) {
+    renderPasswordsList(allSavedPasswords);
+    return;
+  }
+  const q = query.toLowerCase().trim();
+  const filtered = allSavedPasswords.filter(p =>
+    (p.name && p.name.toLowerCase().includes(q)) ||
+    (p.url && p.url.toLowerCase().includes(q)) ||
+    (p.username && p.username.toLowerCase().includes(q))
+  );
+  renderPasswordsList(filtered);
+}
+
+function openAddPasswordModal() {
+  const m = document.getElementById('add-password-modal');
+  if (m) {
+    document.getElementById('manual-pass-url').value = '';
+    document.getElementById('manual-pass-user').value = '';
+    document.getElementById('manual-pass-pass').value = '';
+    m.classList.remove('hidden');
+  }
+}
+
+function closeAddPasswordModal() {
+  const m = document.getElementById('add-password-modal');
+  if (m) m.classList.add('hidden');
+}
+
+async function submitManualPassword() {
+  const url = document.getElementById('manual-pass-url')?.value.trim();
+  const username = document.getElementById('manual-pass-user')?.value.trim();
+  const password = document.getElementById('manual-pass-pass')?.value || '';
+
+  if (!username) {
+    alert('Lütfen kullanıcı adı veya e-posta girin.');
+    return;
+  }
+
+  await ipcRenderer.invoke('passwords-save', { url, username, password });
+  closeAddPasswordModal();
+  await loadPasswordsList();
+  setStatusText('✅ Şifre kaydedildi.');
+}
+
+// ===== Google Chrome Tarzı Şifre Kaydetme Bildirimi =====
+function showPasswordSavePrompt(url, username, password) {
+  if (!username && !password) return;
+  pendingSavePassword = { url, username, password };
+
+  let siteName = url;
+  try { siteName = new URL(url).hostname.replace(/^www\./, ''); } catch {}
+
+  const promptEl = document.getElementById('password-save-prompt');
+  if (!promptEl) return;
+  document.getElementById('pass-prompt-site-name').textContent = siteName;
+  document.getElementById('pass-prompt-username').value = username || '';
+  document.getElementById('pass-prompt-password').value = password || '';
+
+  promptEl.classList.remove('hidden');
+}
+
+function dismissPasswordPrompt() {
+  const promptEl = document.getElementById('password-save-prompt');
+  if (promptEl) promptEl.classList.add('hidden');
+  pendingSavePassword = null;
+}
+
+async function confirmSavePassword() {
+  if (!pendingSavePassword) return;
+  await ipcRenderer.invoke('passwords-save', pendingSavePassword);
+  dismissPasswordPrompt();
+  setStatusText('✅ Şifre kaydedildi.');
+}
+
+// ===== Otomatik Doldurma ve Form Yakalama Kancaları =====
+async function injectPasswordManagerHooks(webview) {
+  try {
+    const currentUrl = webview.getURL();
+    if (!currentUrl || (!currentUrl.startsWith('http://') && !currentUrl.startsWith('https://'))) {
+      return;
+    }
+
+    // 1. Kayıtlı şifre varsa formu otomatik doldur
+    if (browserSettings.autoFillPasswords) {
+      const matches = await ipcRenderer.invoke('passwords-find-for-url', currentUrl);
+      if (matches && matches.length > 0) {
+        const cred = matches[0];
+        const autofillScript = `(function() {
+          try {
+            const user = ${JSON.stringify(cred.username)};
+            const pass = ${JSON.stringify(cred.password)};
+            const passInput = document.querySelector('input[type="password"]');
+            if (passInput && !passInput.value) {
+              passInput.value = pass;
+              passInput.dispatchEvent(new Event('input', { bubbles: true }));
+              passInput.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            const userInput = document.querySelector('input[type="email"], input[name*="user" i], input[name*="login" i], input[type="text"]');
+            if (userInput && !userInput.value) {
+              userInput.value = user;
+              userInput.dispatchEvent(new Event('input', { bubbles: true }));
+              userInput.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          } catch(e) {}
+        })();`;
+        webview.executeJavaScript(autofillScript).catch(() => {});
+      }
+    }
+
+    // 2. Form gönderildiğinde şifreyi yakala ve kaydetmeyi sor
+    if (browserSettings.promptSavePasswords) {
+      const hookScript = `(function() {
+        if (window.__chatTarayiciPassHooked) return;
+        window.__chatTarayiciPassHooked = true;
+        document.addEventListener('submit', function(e) {
+          try {
+            const form = e.target;
+            if (!form) return;
+            const passInput = form.querySelector('input[type="password"]');
+            if (!passInput || !passInput.value) return;
+            const userInput = form.querySelector('input[type="email"], input[name*="user" i], input[name*="login" i], input[type="text"]');
+            const username = userInput ? userInput.value : '';
+            const password = passInput.value;
+            if (password) {
+              console.log('__CHATTARAYICI_SAVE_PASS__:' + JSON.stringify({
+                url: location.href,
+                username: username,
+                password: password
+              }));
+            }
+          } catch(err) {}
+        }, true);
+      })();`;
+      webview.executeJavaScript(hookScript).catch(() => {});
+    }
+  } catch {}
 }
 
 function showAdultBlockedPage(webview, blockedUrl) {
@@ -2391,10 +3099,25 @@ document.addEventListener('keydown', (e) => {
     showHistory();
   }
 
+  // Ctrl+Shift+B - Yer işaretleri çubuğunu aç/kapat
+  if (e.ctrlKey && e.shiftKey && (e.key === 'B' || e.key === 'b')) {
+    e.preventDefault();
+    toggleBookmarksBar();
+  }
+
+  // Ctrl+, - Ayarları aç
+  if (e.ctrlKey && e.key === ',') {
+    e.preventDefault();
+    openSettings('chrome-import');
+  }
+
   // Escape - Close modals
   if (e.key === 'Escape') {
     document.getElementById('extensions-modal').classList.add('hidden');
     document.getElementById('updates-modal').classList.add('hidden');
+    closeSettings();
+    closeAddPasswordModal();
+    dismissPasswordPrompt();
     closeExtensionStore();
     closeAdultProtectionSettings();
     closeExtensionPopup();
@@ -2411,6 +3134,7 @@ urlIn.addEventListener('focus', () => {
 
 // ===== Initialize =====
 function init() {
+  loadBrowserSettings();
   renderBookmarks();
   syncAudioBoostControls();
   updateNtpClock();
@@ -2420,7 +3144,6 @@ function init() {
 
   const exts = extensionManager.scanExtensions();
   updateActiveExtensionsBar(exts);
-
 }
 
 init();
