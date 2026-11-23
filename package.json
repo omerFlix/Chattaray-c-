@@ -27,6 +27,7 @@
       "output": "dist"
     },
     "win": {
+      "icon": "icon.ico",
       "target": [
         "nsis",
         "portable"
@@ -69,6 +70,7 @@
       "styles.css",
       "index.html",
       "icon.png",
+      "icon.ico",
       "extension-manager.js",
       "chrome-importer.js",
       "password-manager.js",
