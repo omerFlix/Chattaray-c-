@@ -57,7 +57,6 @@ app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 app.commandLine.appendSwitch('no-sandbox');
 app.commandLine.appendSwitch('touch-events', 'enabled');
 app.commandLine.appendSwitch('enable-features', 'TouchEvents,OverlayScrollbar');
-app.commandLine.appendSwitch('ignore-gpu-blocklist');
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch('disable-features', 'AudioServiceSandbox');
 }

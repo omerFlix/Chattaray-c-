@@ -33,6 +33,7 @@ class ExtensionManager {
     this.enabledExtensions = new Set();
     this.knownExtensions = new Set();
     this.removedExtensions = new Set();
+    this.contentScriptFileCache = new Map();
 
     // Create extensions dir if not exists
     if (!fs.existsSync(this.extensionsDir)) {
@@ -72,6 +73,7 @@ class ExtensionManager {
   // Scan extensions directory and load all manifests
   scanExtensions() {
     this.extensions.clear();
+    this.contentScriptFileCache.clear();
 
     if (!fs.existsSync(this.extensionsDir)) return [];
 
@@ -342,18 +344,16 @@ class ExtensionManager {
           if (cs.js) {
             for (const jsFile of cs.js) {
               const filePath = path.join(ext.path, jsFile);
-              if (fs.existsSync(filePath)) {
-                entry.js.push(fs.readFileSync(filePath, 'utf-8'));
-              }
+              const contents = this.readContentScriptFile(filePath);
+              if (contents !== null) entry.js.push(contents);
             }
           }
 
           if (cs.css) {
             for (const cssFile of cs.css) {
               const filePath = path.join(ext.path, cssFile);
-              if (fs.existsSync(filePath)) {
-                entry.css.push(fs.readFileSync(filePath, 'utf-8'));
-              }
+              const contents = this.readContentScriptFile(filePath);
+              if (contents !== null) entry.css.push(contents);
             }
           }
 
@@ -365,6 +365,22 @@ class ExtensionManager {
     }
 
     return scripts;
+  }
+
+  readContentScriptFile(filePath) {
+    const resolvedPath = path.resolve(filePath);
+    if (this.contentScriptFileCache.has(resolvedPath)) {
+      return this.contentScriptFileCache.get(resolvedPath);
+    }
+
+    let contents = null;
+    try {
+      if (fs.existsSync(resolvedPath)) contents = fs.readFileSync(resolvedPath, 'utf-8');
+    } catch (error) {
+      console.warn(`Could not read extension content script ${resolvedPath}:`, error.message);
+    }
+    this.contentScriptFileCache.set(resolvedPath, contents);
+    return contents;
   }
 
   // Get popup HTML content for any extension (custom or auto-generated dashboard)

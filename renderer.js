@@ -13,6 +13,7 @@ let tabIdCounter = 0;
 let bookmarks = loadStoredArray('bookmarks');
 let history = loadStoredArray('browsingHistory').filter(entry => isHistoryWebUrl(entry.url));
 const historyPageTabIds = new Set();
+const extensionRefreshPendingTabIds = new Set();
 let zoomLevels = {};
 const audioBoostDefaults = {
   level: Number(localStorage.getItem('audioBoostLevel') || 100),
@@ -618,6 +619,9 @@ function switchTab(tabId) {
     ntpPage.classList.add('hidden');
     updateUrlBar(tab ? tab.url : '');
     updateNavButtons(tabId);
+    if (extensionRefreshPendingTabIds.delete(tabId)) {
+      webview.reload();
+    }
   } else {
     ntpPage.classList.remove('hidden');
     document.querySelectorAll('#webview-container webview').forEach(w => w.classList.remove('active'));
@@ -642,6 +646,7 @@ function switchTab(tabId) {
 function closeTab(tabId) {
   const index = tabs.findIndex(t => t.id === tabId);
   if (index === -1) return;
+  extensionRefreshPendingTabIds.delete(tabId);
 
   const tabEl = document.getElementById(tabId);
   if (tabEl) tabEl.remove();
@@ -731,6 +736,7 @@ function navigateTo(input, internalPage = null) {
 
   const tab = tabs.find(t => t.id === activeTabId);
   if (!tab) return;
+  extensionRefreshPendingTabIds.delete(activeTabId);
   if (internalPage === 'history') historyPageTabIds.add(activeTabId);
   else historyPageTabIds.delete(activeTabId);
 
@@ -2328,7 +2334,14 @@ async function unloadNativeExtensionForUi(extId) {
 function reloadOpenWebviews() {
   document.querySelectorAll('#webview-container webview').forEach((webview) => {
     try {
-      if (webview.getURL && /^https?:\/\//i.test(webview.getURL())) webview.reload();
+      if (!webview.getURL || !/^https?:\/\//i.test(webview.getURL())) return;
+      const tabId = webview.getAttribute('data-tab');
+      if (tabId === activeTabId) {
+        extensionRefreshPendingTabIds.delete(tabId);
+        webview.reload();
+      } else if (tabId) {
+        extensionRefreshPendingTabIds.add(tabId);
+      }
     } catch {}
   });
 }
